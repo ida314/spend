@@ -1,0 +1,43 @@
+# Generated from this template by scripts/service-install.sh. The template is the
+# reviewable artifact; the installed copy says so in its own header and is overwritten on
+# every install, so edits belong here.
+#
+# A rootless --user unit rather than a container: this service is Python and SQLite with
+# no system dependency to isolate. There is nothing a container would buy here that the
+# venv does not already give, and it would put the receipts behind a volume mount.
+
+[Unit]
+Description=spend-tracker — receipts in, spending out
+Documentation=file://@REPO@/README.md
+# `sir` is where extraction goes, but it is deliberately not a dependency. A receipt
+# uploaded while the model is down is queued, not lost, and the app is fully usable for
+# reading and correcting history with no inference at all.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=@REPO@
+ExecStart=@VENV@/bin/spend-tracker serve
+Restart=always
+RestartSec=5
+
+Environment=SPENDTRACKER_HOST=127.0.0.1
+Environment=SPENDTRACKER_PORT=@PORT@
+Environment=SPENDTRACKER_SIR_BASE_URL=@SIR@
+Environment=SIR_BASE_URL=@SIR@
+Environment=TZ=America/New_York
+Environment=PYTHONUNBUFFERED=1
+
+# The receipts and the database are the only things this writes. ProtectHome would put
+# them out of reach, so the narrower knobs are used instead.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=%h/.local/share/spend-tracker %h/.cache/spend-tracker
+
+[Install]
+WantedBy=default.target
