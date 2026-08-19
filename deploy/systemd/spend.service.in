@@ -2,9 +2,15 @@
 # reviewable artifact; the installed copy says so in its own header and is overwritten on
 # every install, so edits belong here.
 #
-# A rootless --user unit rather than a container: this service is Python and SQLite with
-# no system dependency to isolate. There is nothing a container would buy here that the
-# venv does not already give, and it would put the receipts behind a volume mount.
+# The fallback path. compose.yaml is the one to reach for first; this exists for a box
+# with no Docker, and for `uv run` development against the real database. What it costs is
+# that the host's Python has to satisfy onnxruntime and opencv itself — which is the whole
+# reason the image exists.
+#
+# Both paths run the same command against the same directories, so switching is stopping
+# one and starting the other. They must not run at once: two processes with the same
+# SQLite file will not corrupt it, but they will both run the extraction worker and send
+# the same receipt to `sir` twice.
 
 [Unit]
 Description=spend — receipts in, spending out

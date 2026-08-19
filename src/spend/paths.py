@@ -72,6 +72,18 @@ def config_file() -> Path:
     return config_dir() / "config.toml"
 
 
+def backup_dir() -> Path:
+    """Where `spend backup` writes. Not under SPEND_HOME on purpose.
+
+    A backup that lands inside the tree it is backing up is not a backup, so this one root
+    ignores the single override and takes its own variable. In the container it is a mount
+    point; under systemd it is `~/backups/spend`.
+    """
+    if raw := _env("BACKUP_DIR"):
+        return Path(raw).expanduser()
+    return Path.home() / "backups" / SLUG
+
+
 def receipt_path(sha256: str, ext: str) -> Path:
     """Content-addressed, sharded two levels deep.
 

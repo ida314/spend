@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Install spend as rootless systemd --user units.
+# Install spend as rootless systemd --user units — the fallback deploy path.
+#
+# `docker compose up -d` is the one to reach for first (see compose.yaml). This is for a
+# box with no Docker, and it is the same code against the same directories, so the two are
+# interchangeable — but never both at once: each runs an extraction worker, and two of
+# those will send the same receipt to `sir` twice.
 #
 # Generates units from deploy/systemd/*.in into ~/.config/systemd/user/, substituting the
 # paths this checkout actually resolved to. Re-running it is the upgrade path: it
@@ -56,4 +61,8 @@ Then open https://spend.<your-tailnet>.ts.net/ and add it to the home screen.
     systemctl --user status spend      # is it up
     journalctl --user -u spend -f      # what is it doing
     $VENV/bin/spend doctor             # what did it resolve
+
+Backups land in \$HOME/backups/spend nightly. To take one now:
+
+    $VENV/bin/spend backup
 EOF

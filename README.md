@@ -53,20 +53,55 @@ list that could equally mean "you spent nothing" or "inference has been down for
 ## Running it
 
 ```bash
-uv sync
-uv run spend doctor            # what did this process actually resolve?
-uv run spend ingest ~/r.jpg
-uv run spend extract
-uv run spend serve             # http://127.0.0.1:8089
-uv run pytest                          # no GPU, no network, no sir
-```
-
-Deploy as rootless systemd `--user` units, then publish on the tailnet:
-
-```bash
-./scripts/service-install.sh
+docker compose up -d --build
+docker compose exec spend spend doctor    # what did this process actually resolve?
 tailscale serve --service=svc:spend --https=443 http://127.0.0.1:8089
 ```
+
+Then open `https://spend.<your-tailnet>.ts.net/` and add it to the home screen. The
+container publishes on the host's `127.0.0.1` only — the tailnet is the door, and
+`tailscale serve` on the host is what opens it.
+
+The image exists for one reason: OCR. `rapidocr` brings `onnxruntime` and `opencv`, which
+want system libraries the box does not otherwise have, and `sir-client` comes from git
+rather than PyPI. Pinning that in an image stops the deploy box's Python and a laptop's
+Python from being two separate questions.
+
+`sir` is assumed to be on the host at `:8000`, reached as `host.docker.internal`. Point it
+elsewhere with `SPEND_SIR_BASE_URL` in a `.env` beside `compose.yaml`.
+
+```bash
+docker compose logs -f spend              # what is it doing
+docker compose ps                         # healthcheck hits /healthz
+mkdir -p ~/backups/spend && docker compose run --rm backup
+```
+
+Backups are one-shot and scheduled from the host, because the host already has a timer and
+a container that sleeps until 03:30 is a worse one:
+
+```cron
+30 3 * * * cd /srv/spend && docker compose run --rm backup
+```
+
+### Without Docker
+
+`uv` and rootless systemd `--user` units still work and are still supported — for a box
+with no Docker, and for developing against the real database:
+
+```bash
+uv sync
+uv run spend ingest ~/r.jpg
+uv run spend extract
+uv run spend serve                     # http://127.0.0.1:8089
+uv run pytest                          # no GPU, no network, no sir
+
+./scripts/service-install.sh           # units + a nightly backup timer
+```
+
+The container bind-mounts the same `~/.local/share/spend` these commands use, so the two
+paths see one database and one set of receipts. Switching is stopping one and starting the
+other — no export, no import. Do not run both at once: each carries the extraction worker,
+and two of those send the same receipt to `sir` twice.
 
 ## Where things are
 
@@ -76,9 +111,16 @@ tailscale serve --service=svc:spend --https=443 http://127.0.0.1:8089
 | receipts | `~/.local/share/spend/receipts/<ab>/<sha256>.jpg` |
 | render cache | `~/.cache/spend/render/` — derived, delete freely |
 | config | `~/.config/spend/config.toml`, overridden by `SPEND_*` |
+| backups | `~/backups/spend/` — `spend backup`, nightly under either deploy path |
 
-Back up the first two. `SPEND_HOME` repoints all of them at once, which is how the
-tests avoid the real database.
+Back up the first two; `spend backup` does exactly that, and uses `VACUUM INTO` rather
+than a file copy because a WAL database copied without its `-wal` opens cleanly and is
+missing the last writes.
+
+`SPEND_HOME` repoints the first four at once, which is how the tests avoid the real
+database. The container sets the three XDG variables instead, so the same directories land
+at `/var/lib/spend`, `/var/cache/spend` and `/etc/spend` inside it — the host paths above
+are still where the bytes are.
 
 ## Reading, not seeing
 

@@ -1,0 +1,7 @@
+# The build needs pyproject.toml, uv.lock and src/. Everything else is either irrelevant
+# to the image or actively harmful in it — a .venv built on the host has the host's
+# absolute paths baked into its scripts, and config.toml is a deploy secret's neighbour.
+*
+!pyproject.toml
+!uv.lock
+!src/

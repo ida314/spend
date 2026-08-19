@@ -1,0 +1,78 @@
+# The deployment path. `docker compose up -d --build` and it is running.
+#
+# Why a container when the systemd unit worked: the OCR stack is the argument. rapidocr
+# pulls onnxruntime and opencv, which want system libraries the host does not otherwise
+# have, and `sir-client` comes from git rather than PyPI. Pinning all of that in an image
+# means the deploy box's Python and the laptop's Python stop being two different questions.
+# The uv + systemd path in scripts/service-install.sh still works and is still supported;
+# it is the fallback, and README.md says when to reach for it.
+
+name: spend
+
+services:
+  spend:
+    build: .
+    image: spend:local
+    container_name: spend
+    restart: unless-stopped
+
+    # Bound to the host's loopback, exactly like the systemd unit. The tailnet is the door
+    # — `tailscale serve` runs on the host and forwards here. Dropping the `127.0.0.1:`
+    # would publish an unauthenticated upload endpoint to the whole LAN.
+    ports:
+      - "127.0.0.1:${SPEND_PORT:-8089}:8089"
+
+    environment:
+      # `sir` runs on the host, outside this project. From a bridged container the host is
+      # host.docker.internal (see extra_hosts). Set SPEND_SIR_BASE_URL in .env to point
+      # somewhere else. Two names because sir_client reads SIR_BASE_URL itself.
+      SPEND_SIR_BASE_URL: ${SPEND_SIR_BASE_URL:-http://host.docker.internal:8000}
+      SIR_BASE_URL: ${SPEND_SIR_BASE_URL:-http://host.docker.internal:8000}
+      SPEND_MODEL: ${SPEND_MODEL:-nvidia/Qwen3.6-27B-NVFP4}
+      SPEND_RENDER_MODE: ${SPEND_RENDER_MODE:-ocr}
+      TZ: ${TZ:-America/New_York}
+
+    # If `sir` ever moves into a compose project of its own, delete this and put both
+    # services on a shared network instead.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    # Bind mounts and not named volumes, and this is the load-bearing decision here: the
+    # container reads the same `~/.local/share/spend` the uv path writes. A named volume
+    # would be opaque, and the fallback in scripts/service-install.sh would come up
+    # against an empty database — a fallback that cannot see the data is not one.
+    # `:z` relabels for SELinux and is ignored where SELinux is off. Both directories must
+    # be writable by uid 1000; on a single-user box they already are.
+    volumes:
+      - ${SPEND_DATA_DIR:-${HOME}/.local/share/spend}:/var/lib/spend:z    # back this up
+      - ${SPEND_CACHE_DIR:-${HOME}/.cache/spend}:/var/cache/spend:z       # derived
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8089/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+  # One-shot, under a profile so `up` never starts it:  docker compose run --rm backup
+  # Schedule it from the host — a cron line or a systemd --user timer. Nothing in here
+  # sleeps waiting for 03:30, because a container whose job is to wait is a worse timer
+  # than the one the host already has.
+  backup:
+    profiles: ["backup"]
+    build: .
+    image: spend:local
+    command: ["backup"]
+    environment:
+      TZ: ${TZ:-America/New_York}
+    volumes:
+      # Read-only would be tidier, but SQLite in WAL mode needs to write the -shm file to
+      # take even a read transaction. `spend backup` issues no statement that mutates.
+      - ${SPEND_DATA_DIR:-${HOME}/.local/share/spend}:/var/lib/spend:z
+      # Same destination the systemd timer uses, so the two deploy paths do not each keep
+      # their own half-backup. It must exist: `mkdir -p ~/backups/spend`.
+      - ${SPEND_BACKUP_DIR:-${HOME}/backups/spend}:/backups:z

@@ -1,8 +1,8 @@
 """`spend` — the terminal half.
 
 Everything the web app can do, plus the things that only make sense from a shell: a
-one-off ingest, a batch re-extraction, a rebuild, and `doctor`, which prints what the
-process actually resolved rather than what the config file says it should have.
+one-off ingest, a batch re-extraction, a rebuild, a backup, and `doctor`, which prints
+what the process actually resolved rather than what the config file says it should have.
 """
 
 from __future__ import annotations
@@ -110,6 +110,19 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def cmd_backup(args) -> int:
+    from spend import backup
+    dest = Path(args.dest).expanduser() if args.dest else paths.backup_dir()
+    try:
+        r = backup.run(dest)
+    except (FileNotFoundError, OSError) as exc:
+        print(f"backup failed: {exc}", file=sys.stderr)
+        return 1
+    print(f"db        {r.db}")
+    print(f"receipts  {r.copied} copied, {r.present} already there  ->  {r.receipts}")
+    return 0
+
+
 def cmd_doctor(args) -> int:
     from spend.service import summary
     print(f"{NAME}  —  {TAGLINE}\n")
@@ -170,6 +183,11 @@ def main(argv: list[str] | None = None) -> int:
 
     r = sub.add_parser("rebuild", help="re-derive every transaction from the log")
     r.set_defaults(func=cmd_rebuild)
+
+    b = sub.add_parser("backup", help="copy the database and receipts somewhere safe")
+    b.add_argument("dest", nargs="?", help=f"destination directory "
+                                          f"(default {paths.backup_dir()})")
+    b.set_defaults(func=cmd_backup)
 
     s = sub.add_parser("serve", help="run the web app")
     s.add_argument("--host")
