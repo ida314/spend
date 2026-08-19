@@ -1,0 +1,46 @@
+# Merchant → category, applied at projection time.
+#
+# This file is not a cache and not a migration: it is read on every rebuild, so editing it
+# and running `spend-tracker rebuild` recategorises all history, including receipts read
+# months ago by an older prompt. That is the point. The model's own guess is a fallback
+# for merchants not listed here, and a category you set by hand on one receipt beats both.
+#
+# Matching is a case-folded substring test against the merchant name, first match wins, so
+# order matters where two patterns could both hit. Keep the specific ones above the
+# general ones.
+
+[groceries]
+patterns = ["trader joe", "whole foods", "wegmans", "key food", "c-town", "aldi",
+            "costco", "safeway", "kroger", "h mart", "fairway", "bodega"]
+
+[restaurant]
+patterns = ["restaurant", "pizzeria", "cafe", "coffee", "starbucks", "chipotle",
+            "sweetgreen", "doordash", "uber eats", "grubhub", "seamless", "bakery",
+            "taqueria", "sushi", "ramen", "deli"]
+
+[transport]
+patterns = ["uber", "lyft", "mta", "amtrak", "delta air", "united air", "jetblue",
+            "citi bike", "parking"]
+
+# Below "transport" on purpose: "uber" would otherwise claim the fuel stations, and
+# "shell" is a substring of nothing else here.
+[fuel]
+patterns = ["shell", "exxon", "mobil", "bp ", "chevron", "sunoco", "citgo", "wawa gas"]
+
+[pharmacy]
+patterns = ["cvs", "walgreens", "duane reade", "rite aid", "pharmacy"]
+
+[household]
+patterns = ["home depot", "lowe", "ikea", "target", "ace hardware", "container store",
+            "bed bath"]
+
+[entertainment]
+patterns = ["cinema", "amc ", "regal", "theater", "theatre", "spotify", "netflix",
+            "steam", "nintendo", "bookstore", "barnes"]
+
+[clothing]
+patterns = ["uniqlo", "zara", "h&m", "nordstrom", "muji", "patagonia", "rei"]
+
+[services]
+patterns = ["barber", "salon", "laundry", "cleaners", "verizon", "con edison",
+            "spectrum", "usps", "fedex", "ups store"]
