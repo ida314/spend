@@ -1,7 +1,7 @@
 # Merchant → category, applied at projection time.
 #
 # This file is not a cache and not a migration: it is read on every rebuild, so editing it
-# and running `spend-tracker rebuild` recategorises all history, including receipts read
+# and running `spend rebuild` recategorises all history, including receipts read
 # months ago by an older prompt. That is the point. The model's own guess is a fallback
 # for merchants not listed here, and a category you set by hand on one receipt beats both.
 #

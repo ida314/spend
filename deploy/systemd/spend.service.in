@@ -7,7 +7,7 @@
 # venv does not already give, and it would put the receipts behind a volume mount.
 
 [Unit]
-Description=spend-tracker — receipts in, spending out
+Description=spend — receipts in, spending out
 Documentation=file://@REPO@/README.md
 # `sir` is where extraction goes, but it is deliberately not a dependency. A receipt
 # uploaded while the model is down is queued, not lost, and the app is fully usable for
@@ -18,13 +18,13 @@ Wants=network-online.target
 [Service]
 Type=exec
 WorkingDirectory=@REPO@
-ExecStart=@VENV@/bin/spend-tracker serve
+ExecStart=@VENV@/bin/spend serve
 Restart=always
 RestartSec=5
 
-Environment=SPENDTRACKER_HOST=127.0.0.1
-Environment=SPENDTRACKER_PORT=@PORT@
-Environment=SPENDTRACKER_SIR_BASE_URL=@SIR@
+Environment=SPEND_HOST=127.0.0.1
+Environment=SPEND_PORT=@PORT@
+Environment=SPEND_SIR_BASE_URL=@SIR@
 Environment=SIR_BASE_URL=@SIR@
 Environment=TZ=America/New_York
 Environment=PYTHONUNBUFFERED=1
@@ -37,7 +37,7 @@ ProtectSystem=strict
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
-ReadWritePaths=%h/.local/share/spend-tracker %h/.cache/spend-tracker
+ReadWritePaths=%h/.local/share/spend %h/.cache/spend
 
 [Install]
 WantedBy=default.target

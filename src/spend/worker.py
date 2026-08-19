@@ -16,9 +16,9 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from spendtracker import config, store
-from spendtracker.extract.base import Extractor
-from spendtracker.service import extract_one
+from spend import config, store
+from spend.extract.base import Extractor
+from spend.service import extract_one
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class Worker:
         self._wake.set()
 
     def start(self) -> None:
-        self._task = asyncio.create_task(self._run(), name="spendtracker-worker")
+        self._task = asyncio.create_task(self._run(), name="spend-worker")
 
     async def stop(self) -> None:
         if self._task:

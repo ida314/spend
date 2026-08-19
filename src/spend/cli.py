@@ -1,4 +1,4 @@
-"""`spend-tracker` — the terminal half.
+"""`spend` — the terminal half.
 
 Everything the web app can do, plus the things that only make sense from a shell: a
 one-off ingest, a batch re-extraction, a rebuild, and `doctor`, which prints what the
@@ -13,9 +13,9 @@ import logging
 import sys
 from pathlib import Path
 
-from spendtracker import config, paths, store
-from spendtracker.branding import NAME, TAGLINE
-from spendtracker.money import format_cents
+from spend import config, paths, store
+from spend.branding import NAME, TAGLINE
+from spend.money import format_cents
 
 
 def _setup_logging(verbose: bool) -> None:
@@ -36,7 +36,7 @@ def _open():
 
 
 def cmd_ingest(args) -> int:
-    from spendtracker.service import IngestError, ingest_file
+    from spend.service import IngestError, ingest_file
     conn = _open()
     added = 0
     for raw in args.paths:
@@ -57,8 +57,8 @@ def cmd_ingest(args) -> int:
 
 
 def cmd_extract(args) -> int:
-    from spendtracker.extract.sir import SirExtractor
-    from spendtracker.service import extract_one
+    from spend.extract.sir import SirExtractor
+    from spend.service import extract_one
 
     conn = _open()
     ids = [args.receipt] if args.receipt else store.pending_receipt_ids(conn)
@@ -94,7 +94,7 @@ def cmd_extract(args) -> int:
 
 
 def cmd_rebuild(args) -> int:
-    from spendtracker.service import rebuild
+    from spend.service import rebuild
     conn = _open()
     n = rebuild(conn)
     print(f"rebuilt {n} receipts from the log")
@@ -103,7 +103,7 @@ def cmd_rebuild(args) -> int:
 
 def cmd_serve(args) -> int:
     import uvicorn
-    from spendtracker.web.api import create_app
+    from spend.web.api import create_app
     host, port = args.host or config.HOST, args.port or config.PORT
     print(f"{NAME} on http://{host}:{port}  ({TAGLINE})", file=sys.stderr)
     uvicorn.run(create_app(), host=host, port=port, log_level="info")
@@ -111,7 +111,7 @@ def cmd_serve(args) -> int:
 
 
 def cmd_doctor(args) -> int:
-    from spendtracker.service import summary
+    from spend.service import summary
     print(f"{NAME}  —  {TAGLINE}\n")
     print("paths")
     for label, value in (("db", paths.db_path()), ("receipts", paths.receipts_dir()),

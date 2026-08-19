@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "spend-tracker"
+name = "spend"
 version = "0.1.0"
 description = "Receipts in, spending log out. Local OCR and a local model; nothing leaves the box."
 requires-python = ">=3.12"
@@ -23,10 +23,10 @@ heic = ["pillow-heif>=0.18"]  # iPhone photos that Safari did not transcode
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
 
 [project.scripts]
-spend-tracker = "spendtracker.cli:main"
+spend = "spend.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/spendtracker"]
+packages = ["src/spend"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

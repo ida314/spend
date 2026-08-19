@@ -9,9 +9,9 @@ import io
 import pytest
 from PIL import Image, ImageDraw
 
-from spendtracker.extract.base import Extraction
-from spendtracker.render import Document
-from spendtracker.schema import ReceiptData
+from spend.extract.base import Extraction
+from spend.render import Document
+from spend.schema import ReceiptData
 
 
 @pytest.fixture(autouse=True)
@@ -21,13 +21,13 @@ def home(tmp_path, monkeypatch):
     Autouse and not optional: a test that forgot this would write into the real database
     in ~/.local/share, and the failure mode is silent.
     """
-    monkeypatch.setenv("SPENDTRACKER_HOME", str(tmp_path / "st"))
+    monkeypatch.setenv("SPEND_HOME", str(tmp_path / "st"))
     return tmp_path / "st"
 
 
 @pytest.fixture
 def conn(home):
-    from spendtracker import paths, store
+    from spend import paths, store
     paths.ensure_dirs()
     c = store.connect()
     store.migrate(c)

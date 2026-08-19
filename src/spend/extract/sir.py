@@ -20,10 +20,10 @@ from pydantic import ValidationError
 from sir_client import run_llm
 from sir_client.errors import SirClientError
 
-from spendtracker import config
-from spendtracker.extract.base import Extraction
-from spendtracker.render import Document
-from spendtracker.schema import PROMPT_VERSION, RECEIPT_JSON_SCHEMA, ReceiptData
+from spend import config
+from spend.extract.base import Extraction
+from spend.render import Document
+from spend.schema import PROMPT_VERSION, RECEIPT_JSON_SCHEMA, ReceiptData
 
 log = logging.getLogger(__name__)
 

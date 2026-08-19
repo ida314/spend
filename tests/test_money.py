@@ -2,7 +2,7 @@
 
 import pytest
 
-from spendtracker.money import MoneyError, format_cents, to_cents
+from spend.money import MoneyError, format_cents, to_cents
 
 
 @pytest.mark.parametrize("text,cents", [

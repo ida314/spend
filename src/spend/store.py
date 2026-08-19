@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from spendtracker import paths
+from spend import paths
 
 # Inside the package, not at the repo root: a wheel installed anywhere still carries its
 # own schema, so `migrate()` cannot silently find nothing and leave an empty database

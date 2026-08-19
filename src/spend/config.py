@@ -1,6 +1,6 @@
 """Settings, resolved from the environment once at import.
 
-Module-level constants read from a `SPENDTRACKER_` namespace, the same shape as
+Module-level constants read from a `SPEND_` namespace, the same shape as
 `jobtracker/config.py`. There is no dotenv: this service is started by systemd, and a unit
 file is a better place to read a service's environment than a file the unit has to be
 told about.
@@ -15,8 +15,8 @@ from __future__ import annotations
 import os
 import tomllib
 
-from spendtracker.branding import ENV_PREFIX
-from spendtracker.paths import config_file
+from spend.branding import ENV_PREFIX
+from spend.paths import config_file
 
 _file: dict = {}
 if config_file().exists():
@@ -55,7 +55,7 @@ MAX_EDGE = int(_get("MAX_EDGE", 1600))
 JPEG_QUALITY = int(_get("JPEG_QUALITY", 88))
 
 # --- server ----------------------------------------------------------------------------
-# Loopback. The tailnet is the door: `tailscale serve --service=svc:spend-tracker`.
+# Loopback. The tailnet is the door: `tailscale serve --service=svc:spend`.
 # Binding this to a routable address would publish an upload endpoint to the LAN.
 HOST = _get("HOST", "127.0.0.1")
 PORT = int(_get("PORT", 8089))

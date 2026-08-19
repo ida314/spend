@@ -10,13 +10,13 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from spendtracker import store
+from spend import store
 from tests.conftest import FakeExtractor, ok
 
 
 @pytest.fixture
 def client(home, jpeg_bytes):
-    from spendtracker.web.api import create_app
+    from spend.web.api import create_app
     app = create_app(extractor=FakeExtractor(ok(
         merchant="TRADER JOE'S", total="11.00", tax="1.00",
         line_items=[{"description": "OAT MILK", "total": "5.00"},

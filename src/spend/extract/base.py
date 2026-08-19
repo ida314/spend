@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from spendtracker.render import Document
-from spendtracker.schema import ReceiptData
+from spend.render import Document
+from spend.schema import ReceiptData
 
 
 @dataclass(frozen=True)

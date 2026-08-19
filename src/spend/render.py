@@ -22,7 +22,7 @@ from pathlib import Path
 
 from PIL import Image, ImageOps
 
-from spendtracker import config, paths
+from spend import config, paths
 
 # RapidOCR loads ~15 MB of ONNX models and costs about a second to construct. One receipt
 # at a time means one instance, built on first use so that `--help` and the migrations do

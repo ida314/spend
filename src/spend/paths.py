@@ -5,7 +5,7 @@ backup. The database and the receipt files are irreplaceable: a receipt photo ca
 recovered from anything else once the phone forgets it. The render cache is derived from
 those files and can be deleted at any time. Config is hand-written.
 
-`SPENDTRACKER_HOME` overrides all of them at once. That exists for tests and for throwaway
+`SPEND_HOME` overrides all of them at once. That exists for tests and for throwaway
 profiles; it is one variable rather than three so that pointing the whole app at a scratch
 directory cannot half-succeed and leave a test writing into the real database.
 """
@@ -15,7 +15,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from spendtracker.branding import ENV_PREFIX, SLUG
+from spend.branding import ENV_PREFIX, SLUG
 
 
 def _env(name: str) -> str | None:
@@ -53,7 +53,7 @@ def config_dir() -> Path:
 def db_path() -> Path:
     if raw := _env("DB"):
         return Path(raw).expanduser()
-    return data_dir() / "spendtracker.db"
+    return data_dir() / "spend.db"
 
 
 def receipts_dir() -> Path:

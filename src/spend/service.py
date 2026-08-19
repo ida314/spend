@@ -2,7 +2,7 @@
 
 Everything here is a short script over the pure modules — hash a file and record it,
 render and extract one receipt, recompute a projection. Keeping them in one place is what
-lets `spend-tracker extract` and the background worker be the same code path, so a receipt
+lets `spend extract` and the background worker be the same code path, so a receipt
 fixed from the terminal and one fixed from the phone cannot diverge.
 """
 
@@ -13,9 +13,9 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from spendtracker import config, paths, render, store
-from spendtracker.extract.base import Extraction, Extractor
-from spendtracker.project import Rules, project
+from spend import config, paths, render, store
+from spend.extract.base import Extraction, Extractor
+from spend.project import Rules, project
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ def correct(conn: sqlite3.Connection, receipt_id: int, changes: dict[str, str | 
 
 
 def _unchanged(row: sqlite3.Row, field: str, value: str | None) -> bool:
-    from spendtracker.money import MoneyError, to_cents
+    from spend.money import MoneyError, to_cents
     if field.startswith("item."):
         return False
     if field in ("subtotal", "tax", "tip", "total"):

@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from spendtracker.money import MoneyError, to_cents
-from spendtracker.schema import ReceiptData
+from spend.money import MoneyError, to_cents
+from spend.schema import ReceiptData
 
 RULES_PATH = Path(__file__).resolve().parent / "rules" / "categories.toml"
 

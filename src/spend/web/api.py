@@ -24,11 +24,11 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from spendtracker import config, paths, store
-from spendtracker.branding import NAME, TAGLINE
-from spendtracker.money import format_cents
-from spendtracker.schema import CATEGORIES
-from spendtracker.service import (
+from spend import config, paths, store
+from spend.branding import NAME, TAGLINE
+from spend.money import format_cents
+from spend.schema import CATEGORIES
+from spend.service import (
     IngestError,
     absolute_path,
     correct,
@@ -56,8 +56,8 @@ def create_app(extractor=None) -> FastAPI:
         if ran:
             log.info("applied migrations: %s", ", ".join(ran))
 
-        from spendtracker.extract.sir import SirExtractor
-        from spendtracker.worker import Worker
+        from spend.extract.sir import SirExtractor
+        from spend.worker import Worker
         app.state.worker = Worker(extractor or SirExtractor())
         app.state.worker.start()
         try:

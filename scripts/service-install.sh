@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install spend-tracker as rootless systemd --user units.
+# Install spend as rootless systemd --user units.
 #
 # Generates units from deploy/systemd/*.in into ~/.config/systemd/user/, substituting the
 # paths this checkout actually resolved to. Re-running it is the upgrade path: it
@@ -13,10 +13,10 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="${VENV:-$REPO/.venv}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-PORT="${SPENDTRACKER_PORT:-8089}"
-SIR="${SPENDTRACKER_SIR_BASE_URL:-http://127.0.0.1:8000}"
+PORT="${SPEND_PORT:-8089}"
+SIR="${SPEND_SIR_BASE_URL:-http://127.0.0.1:8000}"
 
-if [ ! -x "$VENV/bin/spend-tracker" ]; then
+if [ ! -x "$VENV/bin/spend" ]; then
   echo "No venv at $VENV. Run:  uv sync" >&2
   exit 1
 fi
@@ -33,8 +33,8 @@ for template in "$REPO"/deploy/systemd/*.in; do
 done
 
 systemctl --user daemon-reload
-systemctl --user enable --now spend-tracker.service
-systemctl --user enable --now spend-tracker-backup.timer
+systemctl --user enable --now spend.service
+systemctl --user enable --now spend-backup.timer
 
 # Survives logout. Without it the units stop when the last session ends, which on a
 # headless box means "after you close the ssh you used to install it".
@@ -42,18 +42,18 @@ loginctl enable-linger "$USER" 2>/dev/null || \
   echo "note: could not enable linger; the service will stop when your session ends"
 
 echo
-systemctl --user --no-pager --lines=0 status spend-tracker.service || true
+systemctl --user --no-pager --lines=0 status spend.service || true
 cat <<EOF
 
 Running on http://127.0.0.1:$PORT — loopback only.
 
 To reach it from the phone, publish it on the tailnet:
 
-    tailscale serve --service=svc:spend-tracker --https=443 http://127.0.0.1:$PORT
+    tailscale serve --service=svc:spend --https=443 http://127.0.0.1:$PORT
 
-Then open https://spend-tracker.<your-tailnet>.ts.net/ and add it to the home screen.
+Then open https://spend.<your-tailnet>.ts.net/ and add it to the home screen.
 
-    systemctl --user status spend-tracker      # is it up
-    journalctl --user -u spend-tracker -f      # what is it doing
-    $VENV/bin/spend-tracker doctor             # what did it resolve
+    systemctl --user status spend      # is it up
+    journalctl --user -u spend -f      # what is it doing
+    $VENV/bin/spend doctor             # what did it resolve
 EOF

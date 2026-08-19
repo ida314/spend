@@ -1,4 +1,4 @@
-# spend-tracker
+# spend
 
 Photograph a receipt; get a categorised transaction with its line items, and keep the
 photograph next to it. Runs on the homelab, reads with the box's own model, and holds no
@@ -26,7 +26,7 @@ iPhone ──tailnet──> :8089 ──> receipts/ on disk (content-addressed)
 
 `receipts`, `extractions` and `corrections` are append-only — nothing in this codebase
 issues an `UPDATE` or `DELETE` against them, and a test traces every statement to prove
-it. `transactions` and `line_items` are derived, and `spend-tracker rebuild` recomputes
+it. `transactions` and `line_items` are derived, and `spend rebuild` recomputes
 all of them from the log.
 
 That is not ceremony; it is what makes the fallible parts safe to improve:
@@ -54,10 +54,10 @@ list that could equally mean "you spent nothing" or "inference has been down for
 
 ```bash
 uv sync
-uv run spend-tracker doctor            # what did this process actually resolve?
-uv run spend-tracker ingest ~/r.jpg
-uv run spend-tracker extract
-uv run spend-tracker serve             # http://127.0.0.1:8089
+uv run spend doctor            # what did this process actually resolve?
+uv run spend ingest ~/r.jpg
+uv run spend extract
+uv run spend serve             # http://127.0.0.1:8089
 uv run pytest                          # no GPU, no network, no sir
 ```
 
@@ -65,19 +65,19 @@ Deploy as rootless systemd `--user` units, then publish on the tailnet:
 
 ```bash
 ./scripts/service-install.sh
-tailscale serve --service=svc:spend-tracker --https=443 http://127.0.0.1:8089
+tailscale serve --service=svc:spend --https=443 http://127.0.0.1:8089
 ```
 
 ## Where things are
 
 | | |
 |---|---|
-| database | `~/.local/share/spend-tracker/spendtracker.db` |
-| receipts | `~/.local/share/spend-tracker/receipts/<ab>/<sha256>.jpg` |
-| render cache | `~/.cache/spend-tracker/render/` — derived, delete freely |
-| config | `~/.config/spend-tracker/config.toml`, overridden by `SPENDTRACKER_*` |
+| database | `~/.local/share/spend/spend.db` |
+| receipts | `~/.local/share/spend/receipts/<ab>/<sha256>.jpg` |
+| render cache | `~/.cache/spend/render/` — derived, delete freely |
+| config | `~/.config/spend/config.toml`, overridden by `SPEND_*` |
 
-Back up the first two. `SPENDTRACKER_HOME` repoints all of them at once, which is how the
+Back up the first two. `SPEND_HOME` repoints all of them at once, which is how the
 tests avoid the real database.
 
 ## Reading, not seeing
@@ -85,7 +85,7 @@ tests avoid the real database.
 Extraction runs OCR locally and sends the model text, even though the model behind `sir`
 is a vision-language model that could read the photo directly. That is a router
 limitation, not a model one, and it is written up in
-[docs/spike-vision.md](docs/spike-vision.md). `SPENDTRACKER_RENDER_MODE=image` is wired
+[docs/spike-vision.md](docs/spike-vision.md). `SPEND_RENDER_MODE=image` is wired
 and waiting.
 
 ## Not built yet

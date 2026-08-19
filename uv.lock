@@ -873,7 +873,7 @@ wheels = [
 ]
 
 [[package]]
-name = "spend-tracker"
+name = "spend"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -42,7 +42,7 @@ marking a receipt read here would change what you see in aerc.
 `GET /v1/messages` has no sender or date filter by design — "start fully dumb", consumers
 filter locally. We filter on the **plus-tag of the recipient local part**: any `To` or `Cc`
 address of the form `<anything>+<tag>@<anything>` where `<tag>` is in
-`SPENDTRACKER_RECEIPT_TAGS`, default `receipt,receipts`.
+`SPEND_RECEIPT_TAGS`, default `receipt,receipts`.
 
 The mailbox address is never hardcoded — only the tag is. Merchants get the plus-address at
 checkout, so the match is exact and there are no sender patterns to maintain.
@@ -79,5 +79,5 @@ attachments need a rasteriser this repo does not have yet — see the note on
 
 ## Schedule
 
-`spend-tracker-poll.timer`, `OnCalendar=*-*-* 03:00`, `Persistent=true`, matching
+`spend-poll.timer`, `OnCalendar=*-*-* 03:00`, `Persistent=true`, matching
 `jobtracker-tomorrow.timer`. Nightly is well inside any tombstone-pruning window.

@@ -11,9 +11,9 @@ import re
 
 import pytest
 
-from spendtracker import store
-from spendtracker.extract.base import Extraction
-from spendtracker.service import correct, extract_one, ingest_bytes, rebuild
+from spend import store
+from spend.extract.base import Extraction
+from spend.service import correct, extract_one, ingest_bytes, rebuild
 from tests.conftest import FakeExtractor, ok
 
 
@@ -106,7 +106,7 @@ async def test_editing_the_rules_recategorises_history(conn, jpeg_bytes, monkeyp
 
     rules = tmp_path / "categories.toml"
     rules.write_text('[household]\npatterns = ["nonesuch"]\n')
-    monkeypatch.setattr("spendtracker.project.RULES_PATH", rules)
+    monkeypatch.setattr("spend.project.RULES_PATH", rules)
 
     rebuild(conn)
     assert conn.execute("SELECT category FROM transactions WHERE receipt_id=?",
@@ -166,7 +166,7 @@ def test_the_same_bytes_twice_is_one_receipt(conn, jpeg_bytes):
 def test_a_receipt_is_stored_under_its_own_hash(conn, jpeg_bytes):
     import hashlib
 
-    from spendtracker.service import absolute_path
+    from spend.service import absolute_path
     rid, _ = ingest_bytes(conn, jpeg_bytes, mime="image/jpeg")
     row = store.get_receipt(conn, rid)
     assert row["sha256"] == hashlib.sha256(jpeg_bytes).hexdigest()
@@ -176,14 +176,14 @@ def test_a_receipt_is_stored_under_its_own_hash(conn, jpeg_bytes):
 @pytest.mark.parametrize("mime", ["application/pdf", "text/html", "", "application/zip"])
 def test_a_type_the_renderer_cannot_read_is_refused_at_the_door(conn, jpeg_bytes, mime):
     """Storing it would mean a receipt that looks ingested and can never become a row."""
-    from spendtracker.service import IngestError
+    from spend.service import IngestError
     with pytest.raises(IngestError):
         ingest_bytes(conn, jpeg_bytes, mime=mime)
 
 
 def test_an_oversized_upload_is_refused(conn, jpeg_bytes, monkeypatch):
-    from spendtracker.service import IngestError
-    monkeypatch.setattr("spendtracker.config.MAX_UPLOAD_BYTES", 10)
+    from spend.service import IngestError
+    monkeypatch.setattr("spend.config.MAX_UPLOAD_BYTES", 10)
     with pytest.raises(IngestError, match="limit"):
         ingest_bytes(conn, jpeg_bytes, mime="image/jpeg")
 

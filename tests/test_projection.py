@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from spendtracker.project import Rules, project
-from spendtracker.schema import ReceiptData
+from spend.project import Rules, project
+from spend.schema import ReceiptData
 
 
 def extraction(n: int = 1, status: str = "ok", **fields) -> dict:
