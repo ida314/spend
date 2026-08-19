@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}{{ txn.merchant or "Receipt" }}{% endblock %}
+{% block headeraction %}<a class="back" href="/">Done</a>{% endblock %}
+{% block content %}
+
+{# The receipt first, the numbers under it. Checking a total against the paper it came
+   from is the whole reason the image is kept, so it does not go behind a tab. #}
+<figure class="receipt">
+  <img src="/r/{{ receipt.id }}/image" alt="Receipt {{ receipt.id }}" loading="eager">
+</figure>
+
+{% if txn.status == 'needs_review' %}
+<div class="notice warn">Worth a look: {{ txn.review_reason }}</div>
+{% elif txn.status == 'failed' %}
+<div class="notice warn">The model could not read this: {{ txn.review_reason }}.
+  Type the numbers in below, or ask for another read.</div>
+{% elif txn.status == 'pending' %}
+<div class="notice">Waiting to be read.</div>
+{% endif %}
+
+<form method="post" action="/r/{{ receipt.id }}/correct" class="fields">
+  <label>Merchant<input name="merchant" value="{{ txn.merchant or '' }}" autocapitalize="characters"></label>
+  <label>Where<input name="merchant_location" value="{{ txn.merchant_location or '' }}"></label>
+  <label>Date<input name="purchased_on" type="date" value="{{ txn.purchased_on or '' }}"></label>
+  <label>Category
+    <select name="category">
+      <option value="">—</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if c == txn.category %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </label>
+
+  <div class="amounts">
+    <label>Subtotal<input name="subtotal" inputmode="decimal" value="{{ '%.2f'|format(txn.subtotal_cents/100) if txn.subtotal_cents is not none else '' }}"></label>
+    <label>Tax<input name="tax" inputmode="decimal" value="{{ '%.2f'|format(txn.tax_cents/100) if txn.tax_cents is not none else '' }}"></label>
+    <label>Tip<input name="tip" inputmode="decimal" value="{{ '%.2f'|format(txn.tip_cents/100) if txn.tip_cents is not none else '' }}"></label>
+    <label class="total">Total<input name="total" inputmode="decimal" value="{{ '%.2f'|format(txn.total_cents/100) if txn.total_cents is not none else '' }}"></label>
+  </div>
+
+  {% if items %}
+  <table class="items">
+    <thead><tr><th>Item</th><th>Qty</th><th class="r">Each</th><th class="r">Amount</th></tr></thead>
+    <tbody>
+    {% for i in items %}
+    <tr>
+      <td><input name="item.{{ i.line_no }}.description" value="{{ i.description }}"></td>
+      <td><input name="item.{{ i.line_no }}.qty" value="{{ i.qty or '' }}" size="6"></td>
+      <td class="r">{{ i.unit_cents | money(txn.currency) }}</td>
+      <td class="r"><input name="item.{{ i.line_no }}.total" inputmode="decimal" size="7"
+             value="{{ '%.2f'|format(i.total_cents/100) if i.total_cents is not none else '' }}"></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="hint">Clearing an item's name removes the line.</p>
+  {% endif %}
+
+  <button class="button primary" type="submit">Save</button>
+</form>
+
+<div class="rowactions">
+  <form method="post" action="/r/{{ receipt.id }}/reextract">
+    <button class="button subtle" type="submit">Read again</button>
+  </form>
+  <form method="post" action="/r/{{ receipt.id }}/delete"
+        onsubmit="return confirm('Hide this receipt? The image and its history are kept.')">
+    <button class="button danger" type="submit">Delete</button>
+  </form>
+</div>
+
+<details class="provenance">
+  <summary>How this was read</summary>
+  <p>Receipt #{{ receipt.id }} · {{ receipt.source }} · ingested {{ receipt.ingested_at }}
+     · {{ (receipt.bytes / 1024) | round | int }} KiB · <code>{{ receipt.sha256[:16] }}</code></p>
+  <ol class="attempts">
+    {% for e in extractions %}
+    <li>
+      <b>{{ e.status }}</b> · {{ e.created_at }} · {{ e.render_mode }} ·
+      {{ e.prompt_version }} · {{ e.model }}
+      {% if e.latency_ms %}· {{ (e.latency_ms / 1000) | round(1) }}s{% endif %}
+      {% if e.note %}<br><span class="note">{{ e.note }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% if corrections %}
+  <p class="hint">{{ corrections | length }} correction(s) applied on top. The extraction
+     above is kept exactly as the model returned it.</p>
+  {% endif %}
+</details>
+{% endblock %}

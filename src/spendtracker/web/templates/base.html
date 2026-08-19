@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover so the page reaches under the notch when added to the home screen -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Spending">
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="stylesheet" href="/static/app.css">
+<title>{% block title %}Spending{% endblock %}</title>
+</head>
+<body>
+<header>
+  <a class="wordmark" href="/">spending</a>
+  {% block headeraction %}{% endblock %}
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

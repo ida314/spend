@@ -1,0 +1,164 @@
+/* One stylesheet, custom properties, and a dark palette that follows the phone. No build
+   step and no framework: this is two pages, and a toolchain would be more moving parts
+   than the thing it builds. */
+
+:root {
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --line: #e6e2dc;
+  --ink: #1c1a17;
+  --ink-soft: #6b655c;
+  --accent: #3a6b4f;
+  --warn-bg: #fdf3e3;
+  --warn-line: #e0c48a;
+  --danger: #9b3b32;
+  --radius: 10px;
+  --pad: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16151a;
+    --surface: #1f1e24;
+    --line: #33313a;
+    --ink: #ece9e4;
+    --ink-soft: #9a948c;
+    --accent: #7fb894;
+    --warn-bg: #2e2718;
+    --warn-line: #6b5730;
+    --danger: #d98a80;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+header {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: max(env(safe-area-inset-top), 10px) var(--pad) 10px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.wordmark { font-weight: 620; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }
+.back { text-decoration: none; color: var(--accent); font-weight: 560; }
+
+main { max-width: 680px; margin: 0 auto; padding: var(--pad) var(--pad) 64px; }
+
+/* --- controls --- */
+.button {
+  display: inline-block; padding: 11px 16px; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font-size: 15px; font-weight: 560; cursor: pointer; text-align: center;
+}
+.button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.upload { display: flex; gap: 10px; margin-bottom: var(--pad); }
+.upload .primary { flex: 2; }
+.upload .subtle { flex: 1; }
+
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 20px; }
+.chip {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); text-decoration: none; color: var(--ink-soft); font-size: 14px;
+}
+.chip.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+select {
+  padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font-size: 14px;
+}
+
+.notice {
+  padding: 10px 14px; border-radius: var(--radius); margin-bottom: var(--pad);
+  background: var(--surface); border: 1px solid var(--line); font-size: 14.5px;
+}
+.notice.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.notice code { font-size: 13px; word-break: break-word; }
+
+/* --- the list --- */
+.month { margin-bottom: 28px; }
+.month h2 {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 14px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--ink-soft); margin: 0 0 8px;
+}
+.month .sum { font-variant-numeric: tabular-nums; letter-spacing: 0; text-transform: none; }
+
+.txns { list-style: none; margin: 0; padding: 0;
+        background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.txns li + li { border-top: 1px solid var(--line); }
+.txns a {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+  padding: 12px 14px; text-decoration: none; color: inherit;
+}
+/* All three are placed explicitly. `.amount` carries a definite grid-row, and grid places
+   definitely-positioned items before auto-placed ones — so without a column it claimed
+   column 1 and pushed the merchant name to the right of its own price. */
+.merchant { grid-column: 1; grid-row: 1; font-weight: 560; }
+.meta { grid-column: 1; grid-row: 2; font-size: 13.5px; color: var(--ink-soft); }
+.amount { grid-column: 2; grid-row: 1 / span 2; align-self: center;
+          font-variant-numeric: tabular-nums; font-weight: 560; }
+.flag {
+  font-style: normal; font-size: 12px; padding: 1px 6px; border-radius: 4px;
+  background: var(--warn-bg); border: 1px solid var(--warn-line); margin-left: 4px;
+}
+.flag.pending { background: transparent; border-color: var(--line); }
+.flag.bad { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.empty { color: var(--ink-soft); text-align: center; padding: 48px 0; }
+
+/* --- detail --- */
+.receipt {
+  margin: 0 0 var(--pad); background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
+}
+.receipt img { display: block; width: 100%; height: auto; }
+
+.fields { display: grid; gap: 12px; }
+.fields label { display: grid; gap: 4px; font-size: 13px; color: var(--ink-soft); }
+.fields input, .fields select {
+  padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font-size: 16px; /* 16px: iOS zooms below it */
+  width: 100%;
+}
+.amounts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.amounts input { font-variant-numeric: tabular-nums; }
+.amounts .total input { font-weight: 620; }
+
+.items { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.items th {
+  text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--ink-soft); font-weight: 600; padding: 6px 4px; border-bottom: 1px solid var(--line);
+}
+.items td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.items .r { text-align: right; font-variant-numeric: tabular-nums; }
+.items input { width: 100%; padding: 7px 8px; font-size: 16px; border: 1px solid transparent;
+               border-radius: 6px; background: transparent; color: var(--ink); }
+/* The input inherits the cell's alignment rather than fighting it, so a column of amounts
+   lines up on the decimal point whether or not it is being edited. */
+.items .r input { text-align: right; font-variant-numeric: tabular-nums; }
+.items input:focus { border-color: var(--line); background: var(--surface); }
+.hint { font-size: 13px; color: var(--ink-soft); margin: 6px 0 0; }
+
+.rowactions { display: flex; gap: 10px; margin: 20px 0; }
+.rowactions form { flex: 1; }
+.rowactions button { width: 100%; }
+
+.provenance { margin-top: 28px; font-size: 13.5px; color: var(--ink-soft); }
+.provenance summary { cursor: pointer; padding: 8px 0; }
+.attempts { padding-left: 18px; }
+.attempts li { margin-bottom: 8px; }
+.attempts .note { color: var(--danger); }
+
+/* Wide enough for a laptop: the receipt beside its numbers rather than above them. */
+@media (min-width: 900px) {
+  main { max-width: 1000px; }
+  body.detail main { display: grid; grid-template-columns: 380px 1fr; gap: 28px; }
+}

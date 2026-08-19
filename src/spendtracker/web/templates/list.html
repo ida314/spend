@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+
+<form class="upload" method="post" action="/upload" enctype="multipart/form-data">
+  <!-- A plain form. `capture=environment` opens the rear camera straight from Safari,
+       and because nothing here is JavaScript it works with the network half up. -->
+  <label class="button primary">
+    <input type="file" name="files" accept="image/*" capture="environment" multiple hidden
+           onchange="this.form.submit()">
+    Photograph a receipt
+  </label>
+  <label class="button subtle">
+    <input type="file" name="files" accept="image/*" multiple hidden
+           onchange="this.form.submit()">
+    Choose a file
+  </label>
+</form>
+
+{# A page that shows nothing must say why it shows nothing. An empty list that actually
+   means "the model has been down for two days" is the failure this block exists to
+   prevent. #}
+{% if health.backlog or worker_error %}
+<div class="notice {% if worker_error %}warn{% endif %}">
+  {% if health.backlog %}<strong>{{ health.backlog }}</strong> waiting to be read.{% endif %}
+  {% if worker_error %}<br>Last attempt failed: <code>{{ worker_error }}</code>{% endif %}
+</div>
+{% endif %}
+
+<nav class="filters">
+  <a href="/" class="chip {% if not sel_month and not sel_category and not review %}on{% endif %}">All</a>
+  {% if health.needs_review %}
+  <a href="/?review=1" class="chip {% if review %}on{% endif %}">Needs review ({{ health.needs_review }})</a>
+  {% endif %}
+  <select onchange="location = this.value">
+    <option value="/">Any month</option>
+    {% for m in months %}
+    <option value="/?month={{ m }}" {% if m == sel_month %}selected{% endif %}>{{ m }}</option>
+    {% endfor %}
+  </select>
+  <select onchange="location = this.value">
+    <option value="/">Any category</option>
+    {% for c in categories %}
+    <option value="/?category={{ c }}" {% if c == sel_category %}selected{% endif %}>{{ c }}</option>
+    {% endfor %}
+  </select>
+</nav>
+
+{% for key, g in groups.items() %}
+<section class="month">
+  <h2>{{ g.label }} <span class="sum">{{ g.total | money }}</span></h2>
+  <ul class="txns">
+    {% for t in g.rows %}
+    <li>
+      <a href="/r/{{ t.receipt_id }}">
+        <span class="merchant">{{ t.merchant or "Unread receipt" }}</span>
+        <span class="meta">
+          {{ t.purchased_on or "—" }}
+          {% if t.category %}· {{ t.category }}{% endif %}
+          {% if t.status == 'needs_review' %}<em class="flag" title="{{ t.review_reason }}">check</em>{% endif %}
+          {% if t.status == 'pending' %}<em class="flag pending">reading…</em>{% endif %}
+          {% if t.status == 'failed' %}<em class="flag bad" title="{{ t.review_reason }}">unread</em>{% endif %}
+        </span>
+        <span class="amount">{{ t.total_cents | money(t.currency) }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% else %}
+<p class="empty">
+  {% if health.receipts %}Nothing matches this filter.{% else %}
+  No receipts yet. Photograph one above.{% endif %}
+</p>
+{% endfor %}
+{% endblock %}
