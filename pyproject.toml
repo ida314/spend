@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spend-tracker"
+version = "0.1.0"
+description = "Receipts in, spending log out. Local OCR and a local model; nothing leaves the box."
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.18",  # FastAPI needs it to parse the upload form
+    "pydantic>=2.9",
+    "pillow>=11.0",
+    "rapidocr-onnxruntime>=1.4",  # pip-only OCR: no tesseract, no sudo, no GPU
+    "sir-client",  # the box's inference front door; see [tool.uv.sources]
+]
+
+[project.optional-dependencies]
+heic = ["pillow-heif>=0.18"]  # iPhone photos that Safari did not transcode
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+spend-tracker = "spendtracker.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spendtracker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.uv.sources]
+# Not on PyPI — published from the `sir` repo as its own distribution, and the git form is
+# what its README documents. A checkout on the deploy box is not assumed; gx10 already
+# reaches GitHub to pull images, so this needs no new access.
+sir-client = { git = "https://github.com/ida314/stupid-inference-router.git", subdirectory = "clients/python" }
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "httpx2>=2.12.0",
+]
