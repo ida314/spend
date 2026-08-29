@@ -35,7 +35,10 @@ CREATE TABLE feed_polls (
     file_name     TEXT,
     accounts_seen INTEGER NOT NULL DEFAULT 0,
     records_seen  INTEGER NOT NULL DEFAULT 0,
-    records_new   INTEGER NOT NULL DEFAULT 0,
+    -- How many of those were new is deliberately NOT a column. It is not known until the
+    -- child records have been sealed, so storing it would mean an UPDATE against a truth
+    -- table -- the one thing this schema forbids. It is derived:
+    --   SELECT COUNT(*) FROM feed_records WHERE poll_uid = feed_polls.uid
     errors        TEXT,                    -- json array of errlist entries, verbatim
     note          TEXT,
     seen_ids      TEXT,                    -- json {native_account: [external_id, ...]}

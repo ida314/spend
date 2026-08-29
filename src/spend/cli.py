@@ -29,6 +29,24 @@ def _setup_logging(verbose: bool) -> None:
     logging.getLogger("httpx").setLevel(logging.DEBUG if verbose else logging.WARNING)
 
 
+def _open_if_unlocked():
+    """The cache when there is one, None when the store is locked.
+
+    For the two commands that are supposed to work either way. Sealing needs only the public
+    keys, so a feed pull appends everything it saw while locked and the next `spend unlock`
+    replays it -- which is the property the whole encryption design is arranged around, and
+    which `_open` would quietly deny by exiting.
+    """
+    paths.ensure_dirs()
+    try:
+        keys.require_identity()
+    except keys.Locked:
+        return None
+    conn = store.connect()
+    store.migrate(conn)
+    return conn
+
+
 def _open():
     """The database, or a clear reason why not.
 
@@ -627,14 +645,18 @@ def cmd_feeds_sync(args) -> int:
 
     from spend import service
     from spend.sources import base, simplefin
-    conn = _open()
+    conn = _open_if_unlocked()
     source = simplefin.SimpleFIN()
     if not source.url:
         print(f"not connected. Run `{NAME} feeds connect <setup-token>` first.",
               file=sys.stderr)
         return 1
 
-    history = [dict(r) for r in store.feed_polls_all(conn, simplefin.NAME)]
+    # While locked there is no cache to read the poll history out of, so the window cannot be
+    # planned from it. Ask for the widest window the protocol allows: it is one request
+    # either way, and re-delivering a month of transactions costs nothing because the log is
+    # content-addressed and an unchanged record seals to a file that is already there.
+    history = [dict(r) for r in store.feed_polls_all(conn, simplefin.NAME)] if conn else []
     if args.since:
         window = base.Window(start=date.fromisoformat(args.since),
                              end=date.today())          # noqa: DTZ011 - a local calendar day
@@ -654,10 +676,15 @@ def cmd_feeds_sync(args) -> int:
 
     poll = source.poll(window)
     summary = service.record_poll(conn, poll)
-    service.reproject_feeds(conn)
+    if conn is not None:
+        service.reproject_feeds(conn)
 
+    where = "sealed to the log" if summary["locked"] else "recorded"
     print(f"{window.start} .. {window.end}   {summary['records']} seen, "
-          f"{summary['new']} new   [{poll.outcome}]")
+          f"{summary['new']} new, {where}   [{poll.outcome}]")
+    if summary["locked"]:
+        print("The store is locked, so nothing was decrypted and no projection was rebuilt. "
+              f"`{NAME} unlock` replays this.")
     for e in poll.errors:
         stream = sys.stderr if e.needs_a_human else sys.stdout
         print(f"  [{e.code}] {e.msg}", file=stream)
@@ -671,7 +698,7 @@ def cmd_feeds_sync(args) -> int:
 def cmd_feeds_import(args) -> int:
     from spend import service
     from spend.sources import drop
-    conn = _open()
+    conn = _open_if_unlocked()
     files = [Path(p).expanduser() for p in args.paths] if args.paths else drop.inbox()
     if not files:
         print(f"nothing in {paths.drop_dir() / 'inbox'}")
@@ -681,8 +708,10 @@ def cmd_feeds_import(args) -> int:
     for path in files:
         blob_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
         # Claimed by its bytes, before anything is parsed. This is what makes re-dropping an
-        # overlapping monthly export by accident a no-op rather than a duplicate.
-        if store.feed_poll_for_file(conn, blob_sha):
+        # overlapping monthly export by accident a no-op rather than a duplicate. While
+        # locked there is no cache to ask, so the claim falls back to the log: a re-import
+        # seals no new files and the projection collapses it at the next unlock.
+        if conn is not None and store.feed_poll_for_file(conn, blob_sha):
             print(f"{path.name}: already imported; sealing and removing the plaintext")
             drop.archive(path, blob_sha)
             continue
@@ -696,15 +725,19 @@ def cmd_feeds_import(args) -> int:
             continue
 
         summary = service.record_poll(conn, poll)
-        # Committed first, moved second. A crash between them leaves the file in the inbox
-        # and the records in; the next run re-hashes it, finds the poll, and just archives.
+        # Sealed first, moved second. A crash between them leaves the file in the inbox and
+        # its records in the log; the next run re-hashes it, seals nothing new, and archives.
         drop.archive(path, blob_sha)
         print(f"{path.name}: {summary['records']} rows, {summary['new']} new "
               f"[{poll.detail.get('dialect')}]  -> sealed {blob_sha[:12]}")
         for e in poll.errors:
             print(f"  [{e.code}] {e.msg}", file=sys.stderr)
 
-    service.reproject_feeds(conn)
+    if conn is not None:
+        service.reproject_feeds(conn)
+    else:
+        print(f"\nThe store is locked, so nothing was decrypted. "
+              f"`{NAME} unlock` replays these.")
     return 1 if failures else 0
 
 

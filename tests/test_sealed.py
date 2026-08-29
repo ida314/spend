@@ -144,7 +144,7 @@ def test_an_event_sealed_while_locked_is_read_on_the_next_unlock(conn, jpeg_byte
         "started_at": "2026-08-26T04:00:00+00:00",
         "finished_at": "2026-08-26T04:00:02+00:00",
         "window_from": "2026-07-27", "window_to": "2026-08-27",
-        "records_seen": 12, "records_new": 12,
+        "records_seen": 12,
     }, recipients=recipients)
     assert is_new
 
@@ -153,7 +153,7 @@ def test_an_event_sealed_while_locked_is_read_on_the_next_unlock(conn, jpeg_byte
     conn2, stats = replay.fresh(keys.require_identity())
     assert stats.bad == []
     poll = conn2.execute("SELECT * FROM feed_polls WHERE uid=?", (rec.sha,)).fetchone()
-    assert poll["records_new"] == 12
+    assert poll["records_seen"] == 12
     conn2.close()
 
 
@@ -294,3 +294,64 @@ def test_re_initialising_is_refused_because_it_would_orphan_the_log(home):
     keys.init("a-long-enough-passphrase")
     with pytest.raises(keys.AlreadyInitialised):
         keys.init("another-long-passphrase")
+
+
+# --- the property the nightly timer depends on ------------------------------------------------
+
+def test_a_feed_pull_records_everything_while_locked(conn, accounts_toml, unlocked):
+    """The whole encryption design is arranged so this works, and for a while it did not.
+
+    `spend feeds sync` used to go through the same `_open()` every other command uses, which
+    exits when the store is locked -- so the unit that was supposed to append all night
+    would have failed every night, and the README, both docs and the systemd unit all said
+    otherwise. Sealing needs only the public keys; nothing here should need the identity.
+    """
+    from spend import keys, ledger, replay, service
+    from spend.sources.base import Account, Poll, Record
+
+    conn.close()
+    keys.lock()
+    assert not keys.is_unlocked()
+
+    before = ledger.count()
+    summary = service.record_poll(None, Poll(
+        source="simplefin", outcome="ok",
+        accounts=(Account(native_id="ACT-quicksilver", name="QS", balance_cents=-81209),),
+        records=(Record(native_account="ACT-quicksilver", external_id="SF-7",
+                        description="SQ *BLUE BOTTLE COFFEE", amount_cents=-475,
+                        posted_at="2026-08-16"),)))
+    assert summary["locked"] and summary["new"] == 1
+    assert ledger.count() == before + 3          # the poll, the account, the transaction
+
+    # And the next unlock picks it all up.
+    paths.ensure_runtime()
+    paths.identity_runtime_file().write_text(str(unlocked))
+    fresh, stats = replay.fresh(keys.require_identity())
+    try:
+        assert stats.bad == [] and stats.feed_records == 1
+        row = fresh.execute("SELECT * FROM feed_transactions").fetchone()
+        assert row["merchant"] == "Blue Bottle Coffee"
+        assert row["net_spend_cents"] == 475
+    finally:
+        fresh.close()
+
+
+def test_a_locked_pull_of_something_already_seen_seals_nothing(conn, accounts_toml, unlocked):
+    """Why the locked path can ask for the widest window it likes: an unchanged transaction
+    hashes to a file that is already there."""
+    from spend import keys, ledger, service
+    from spend.sources.base import Poll, Record
+
+    poll = Poll(source="simplefin", outcome="ok",
+                records=(Record(native_account="ACT-quicksilver", external_id="SF-7",
+                                description="SQ *BLUE BOTTLE COFFEE", amount_cents=-475,
+                                posted_at="2026-08-16"),))
+    service.record_poll(conn, poll)
+    conn.close()
+    keys.lock()
+
+    before = ledger.count()
+    assert service.record_poll(None, poll)["new"] == 0
+    # The poll event itself is new -- it happened, and every attempt is recorded -- but the
+    # transaction it re-delivered is not.
+    assert ledger.count() == before + 1

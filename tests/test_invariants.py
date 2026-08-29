@@ -56,10 +56,31 @@ async def test_nothing_ever_updates_or_deletes_a_truth_table(conn, jpeg_bytes):
         if (m := _WRITE.match(sql)) and m.group(2) in TRUTH:
             violations.append(sql.strip())
 
+    from spend.service import correct_feed, record_poll, reproject_feeds
+    from spend.sources.base import Account, Poll, Record
+
     conn.set_trace_callback(trace)
     rid = (await seed(conn, jpeg_bytes, FakeExtractor(ok())))[0]
     correct(conn, rid, {"merchant": "CORRECTED"})
     await extract_one(conn, rid, FakeExtractor(ok(merchant="AGAIN")))
+
+    # The feed path too, and not as an afterthought: `record_poll` used to write the count of
+    # new records back onto the poll row it had already inserted, which is an UPDATE against
+    # a truth table. Nothing caught it, because this test only ever walked the receipt path.
+    def observe(cents, pending):
+        return Poll(source="simplefin", outcome="ok",
+                    accounts=(Account(native_id="ACT-1", name="QS", balance_cents=cents),),
+                    records=(Record(native_account="ACT-1", external_id="SF-1",
+                                    description="SQ *SOMEWHERE", amount_cents=cents,
+                                    posted_at=None if pending else "2026-08-16",
+                                    pending=pending),))
+    record_poll(conn, observe(-5200, True))
+    record_poll(conn, observe(-6100, False))       # the pending charge posts: an append
+    record_poll(conn, observe(-6100, False))       # and again, unchanged: a no-op
+    reproject_feeds(conn)
+    key = conn.execute("SELECT txn_key FROM feed_transactions").fetchone()["txn_key"]
+    correct_feed(conn, key, {"category": "restaurant"})
+
     rebuild(conn)
     conn.set_trace_callback(None)
 

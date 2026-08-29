@@ -17,11 +17,15 @@ that runs while you are asleep. One file per event means `seal()` -- which needs
 keys -- is the entire write path, so the nightly bank sync can append all night and remain
 structurally incapable of reading a single historical transaction.
 
-## The name is the hash of the record without its timestamp
+## The name is the hash of what the record *is*, not of when it arrived
 
-`sha256` over the canonical JSON of `{v, kind, body}`, deliberately excluding `at`. That
-makes re-appending an identical record a byte-level no-op: `seal_to` sees the file already
-there and returns. It is what makes SimpleFIN's recommended overlapping windows affordable
+`sha256` over the canonical JSON of `{v, kind, body}`. Two things are deliberately outside
+that hash and travel in `aside` instead: `at`, and provenance like which poll saw a
+transaction. Both describe the *observation*, not the thing observed, and putting either in
+the digest would mean a nightly poll re-sealed every transaction it re-delivered -- turning
+the one property this design leans on hardest into its opposite. Excluding them makes
+re-appending an identical record a byte-level no-op: `seal_to` sees the file already there
+and returns. It is what makes SimpleFIN's recommended overlapping windows affordable
 -- re-polling thirty days every night for a year writes nothing after the first pass -- and
 it means the timestamp that persists is the first observation's, which is exactly what
 `first_seen_at` should mean.
@@ -45,7 +49,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -72,12 +76,18 @@ class Record:
     kind: str
     at: str
     body: dict
+    aside: dict = field(default_factory=dict)
     path: Path | None = None
 
     @property
     def order(self) -> tuple[str, str]:
         """Total and deterministic: the same set of files always replays the same way."""
         return (self.at, self.sha)
+
+    @property
+    def fields(self) -> dict:
+        """Everything the record carries. What `replay.apply` writes into the cache."""
+        return {**self.body, **self.aside}
 
 
 def canonical(payload: dict) -> bytes:
@@ -94,17 +104,23 @@ def digest(kind: str, body: dict) -> str:
     return hashlib.sha256(canonical({"v": VERSION, "kind": kind, "body": body})).hexdigest()
 
 
-def append(kind: str, body: dict, *, at: str | None = None,
+def append(kind: str, body: dict, *, at: str | None = None, aside: dict | None = None,
            recipients: list | None = None) -> tuple[Record, bool]:
     """Seal one event into the log. Returns (record, is_new).
+
+    `body` is what the record is and decides its name. `aside` is what is true about the
+    observation rather than about the thing -- which poll saw it, and when -- and is sealed
+    alongside without entering the digest, so a re-observation seals nothing.
 
     Needs only the recipients, never the identity. That is the whole point.
     """
     if kind not in KINDS:
         raise ValueError(f"unknown record kind {kind!r}")
     sha = digest(kind, body)
-    rec = Record(sha=sha, kind=kind, at=at or now(), body=body, path=paths.log_path(sha))
-    payload = {"v": VERSION, "kind": rec.kind, "at": rec.at, "body": rec.body}
+    rec = Record(sha=sha, kind=kind, at=at or now(), body=body, aside=aside or {},
+                 path=paths.log_path(sha))
+    payload = {"v": VERSION, "kind": rec.kind, "at": rec.at, "body": rec.body,
+               "aside": rec.aside}
     is_new = seal.seal_to(rec.path, canonical(payload), recipients)
     return rec, is_new
 
@@ -131,12 +147,13 @@ def read(path: Path, identity) -> Record:
     """
     payload = json.loads(seal.open_file(path, identity))
     kind, body, at = payload.get("kind"), payload.get("body"), payload.get("at")
+    aside = payload.get("aside") or {}
     if not isinstance(body, dict) or kind not in KINDS:
         raise LedgerCorrupt(f"{path.name} is not a {__name__} record")
     sha = digest(kind, body)
     if sha != path.stem:
         raise LedgerCorrupt(f"{path.name} contains a record that hashes to {sha[:12]}…")
-    return Record(sha=sha, kind=kind, at=at, body=body, path=path)
+    return Record(sha=sha, kind=kind, at=at, body=body, aside=aside, path=path)
 
 
 def events(identity, root: Path | None = None) -> tuple[list[Record], list[tuple[Path, str]]]:

@@ -464,3 +464,38 @@ def test_a_file_no_dialect_claims_stays_readable_so_you_can_look_at_it(
     dest = drop.archive(path, sha, unrecognised=True)
     assert dest.parent == paths.drop_dir() / "unrecognised"
     assert dest.read_text().startswith("Alpha,Beta")
+
+
+def test_thirty_nightly_polls_of_the_same_month_seal_one_file_each(conn, accounts_toml):
+    """The claim the overlapping-window schedule rests on, stated directly.
+
+    SimpleFIN's guidance is to re-ask for the last few days every night, and the planner asks
+    for far more than that. That is only affordable because a re-delivered transaction seals
+    to a file that already exists. It very nearly was not: `poll_uid` used to sit inside the
+    record's identity hash, so each night's poll got a fresh digest and re-sealed every
+    transaction it re-delivered. Nothing noticed, because the database deduplicated on a
+    unique index and the log was never counted.
+    """
+    from spend import ledger
+    from spend.sources.base import Account, Poll, Record
+
+    month = Poll(
+        source="simplefin", outcome="ok",
+        accounts=(Account(native_id="ACT-quicksilver", name="QS", balance_cents=-81209),),
+        records=tuple(
+            Record(native_account="ACT-quicksilver", external_id=f"SF-{n}",
+                   description=f"MERCHANT {n}", amount_cents=-100 * n,
+                   posted_at=f"2026-08-{n:02d}")
+            for n in range(1, 29)))
+
+    service.record_poll(conn, month)
+    after_first = ledger.count()
+    assert after_first == 1 + 1 + 28              # the poll, the account, the transactions
+
+    for _ in range(30):
+        service.record_poll(conn, month)
+
+    # One new file per night: the poll event itself, because every attempt is recorded even
+    # when it turns out to have delivered nothing new. Not one per transaction per night.
+    assert ledger.count() == after_first + 30
+    assert conn.execute("SELECT COUNT(*) FROM feed_records").fetchone()[0] == 28

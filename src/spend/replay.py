@@ -68,7 +68,7 @@ def apply(conn: sqlite3.Connection, rec: ledger.Record,
           ids: dict[str, int] | None = None) -> int | None:
     """Write one record's rows. The only mapping from an event to the cache."""
     ids = {} if ids is None else ids
-    b = rec.body
+    b = rec.fields
 
     if rec.kind == "receipt":
         rid, _ = store.insert_receipt(

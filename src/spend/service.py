@@ -239,8 +239,14 @@ def summary(conn: sqlite3.Connection) -> dict:
 
 # --- feeds ---------------------------------------------------------------------------------
 
-def record_poll(conn: sqlite3.Connection, poll) -> dict:
+def record_poll(conn: sqlite3.Connection | None, poll) -> dict:
     """Seal one poll's outcome and everything it saw. Returns a small summary.
+
+    `conn` may be None, and that is the whole point of the design rather than a convenience.
+    Sealing needs only the age recipients -- public keys -- so a sync running while the store
+    is locked appends everything it pulled and writes no cache at all; the next `spend
+    unlock` replays it. Pass a connection when one is open and the cache is kept in step as
+    the events land.
 
     Every attempt is recorded, including the ones that returned nothing, and the source's own
     error list is recorded verbatim rather than raised. That is not tidiness: an empty
@@ -250,8 +256,19 @@ def record_poll(conn: sqlite3.Connection, poll) -> dict:
     """
     from spend import feed, ledger      # noqa: PLC0415 - keeps the import graph acyclic
 
+    recipients = seal.load_recipients()
     started = poll.detail.get("started_at") or ledger.now()
-    body = {
+
+    def append(kind: str, body: dict, aside: dict | None = None) -> tuple:
+        rec, is_new = ledger.append(kind, body, aside=aside, recipients=recipients)
+        if conn is not None:
+            replay.apply(conn, rec)
+        return rec, is_new
+
+    # `records_new` is deliberately absent from the body. It is not known until the child
+    # records below have been sealed, and adding it afterwards would mean an UPDATE against
+    # a truth table -- the one thing this schema forbids. It is derived from the log instead.
+    poll_rec, _ = append("feed_poll", {
         "source": poll.source, "outcome": poll.outcome,
         "started_at": started, "finished_at": ledger.now(),
         "window_from": poll.window.start.isoformat() if poll.window else None,
@@ -259,35 +276,34 @@ def record_poll(conn: sqlite3.Connection, poll) -> dict:
         "http_status": poll.http_status,
         "file_sha256": poll.file_sha256, "file_name": poll.file_name,
         "accounts_seen": len(poll.accounts), "records_seen": len(poll.records),
-        "records_new": 0,
         "errors": [vars(e) for e in poll.errors] or None,
         "note": poll.note,
         "seen_ids": poll.seen_ids() or None,
         "detail": {k: v for k, v in poll.detail.items() if k != "started_at"} or None,
-    }
-    # Appended and applied by hand rather than through `replay.record`, because the child
-    # records need this event's digest as their `poll_uid` and `record` does not hand it back.
-    poll_rec, _ = ledger.append("feed_poll", body)
-    replay.apply(conn, poll_rec)
+    })
 
-    new = 0
     for account in poll.accounts:
-        raw = dict(account.raw)
-        replay.record(conn, "feed_account", {
-            "poll_uid": poll_rec.sha, "source": poll.source,
+        # `poll_uid` travels in `aside`: it says which poll saw this balance, which is a
+        # fact about the observation and not about the balance. In the digest it would make
+        # every nightly poll re-seal every account it looked at.
+        append("feed_account", {
+            "source": poll.source,
             "native_id": account.native_id, "org_name": account.org_name,
             "org_domain": account.org_domain, "org_id": account.org_id,
             "name": account.name, "currency": account.currency,
             "balance_cents": account.balance_cents,
             "available_balance_cents": account.available_balance_cents,
             "balance_at": account.balance_at,
-            "content_sha256": feed.content_sha_account(account), "raw": raw,
-        })
+            "content_sha256": feed.content_sha_account(account), "raw": dict(account.raw),
+        }, {"poll_uid": poll_rec.sha})
 
+    # Counted from the log, not from the database, so the number is the same whether or not
+    # a cache happened to be open. A re-observed transaction whose content is unchanged
+    # hashes to a file that already exists, and is not new.
+    new = 0
     for record in poll.records:
-        before = conn.total_changes
-        replay.record(conn, "feed_record", {
-            "poll_uid": poll_rec.sha, "source": poll.source,
+        _, is_new = append("feed_record", {
+            "source": poll.source,
             "native_account": record.native_account, "external_id": record.external_id,
             "posted_at": record.posted_at, "transacted_at": record.transacted_at,
             "pending": bool(record.pending), "amount_cents": record.amount_cents,
@@ -295,17 +311,14 @@ def record_poll(conn: sqlite3.Connection, poll) -> dict:
             "payee": record.payee, "memo": record.memo, "flow_hint": record.flow_hint,
             "reject_reason": record.reject_reason,
             "content_sha256": feed.content_sha(record), "raw": dict(record.raw),
-        })
-        new += conn.total_changes > before
+        }, {"poll_uid": poll_rec.sha})
+        new += is_new
 
-    # `records_new` is known only after the inserts, and the poll record was sealed before
-    # them -- deliberately, so a crash mid-import leaves a poll that says what it attempted
-    # rather than no trace at all. The count is a convenience on the cache row; the log's
-    # own answer is how many feed_record events carry this poll_uid.
-    conn.execute("UPDATE feed_polls SET records_new=? WHERE uid=?", (new, poll_rec.sha))
-    conn.commit()
+    if conn is not None:
+        conn.commit()
     return {"poll_uid": poll_rec.sha, "records": len(poll.records), "new": new,
-            "outcome": poll.outcome, "errors": len(poll.errors)}
+            "outcome": poll.outcome, "errors": len(poll.errors),
+            "locked": conn is None}
 
 
 def reproject_feeds(conn: sqlite3.Connection, ctx=None) -> int:

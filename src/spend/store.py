@@ -293,7 +293,7 @@ def insert_feed_poll(conn: sqlite3.Connection, *, uid: str, source: str, outcome
                      started_at: str, finished_at: str, window_from: str | None = None,
                      window_to: str | None = None, http_status: int | None = None,
                      file_sha256: str | None = None, file_name: str | None = None,
-                     accounts_seen: int = 0, records_seen: int = 0, records_new: int = 0,
+                     accounts_seen: int = 0, records_seen: int = 0,
                      errors: list | None = None, note: str | None = None,
                      seen_ids: dict | None = None, detail: dict | None = None
                      ) -> tuple[int, bool]:
@@ -302,7 +302,6 @@ def insert_feed_poll(conn: sqlite3.Connection, *, uid: str, source: str, outcome
         "finished_at": finished_at, "window_from": window_from, "window_to": window_to,
         "http_status": http_status, "file_sha256": file_sha256, "file_name": file_name,
         "accounts_seen": accounts_seen, "records_seen": records_seen,
-        "records_new": records_new,
         "errors": _json(errors) if errors else None, "note": note,
         "seen_ids": _json(seen_ids) if seen_ids else None,
         "detail": _json(detail) if detail else None,
@@ -393,22 +392,27 @@ def feed_account_latest(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         " ORDER BY source, native_id"))
 
 
+_POLL_SELECT = (
+    "SELECT p.*, (SELECT COUNT(*) FROM feed_records r WHERE r.poll_uid = p.uid)"
+    " AS records_new FROM feed_polls p")
+
+
 def feed_polls_recent(conn: sqlite3.Connection, source: str | None = None,
                       limit: int = 20) -> list[sqlite3.Row]:
     if source:
         return list(conn.execute(
-            "SELECT * FROM feed_polls WHERE source=? ORDER BY started_at DESC, id DESC"
-            " LIMIT ?", (source, limit)))
+            f"{_POLL_SELECT} WHERE p.source=? ORDER BY p.started_at DESC, p.id DESC LIMIT ?",
+            (source, limit)))
     return list(conn.execute(
-        "SELECT * FROM feed_polls ORDER BY started_at DESC, id DESC LIMIT ?", (limit,)))
+        f"{_POLL_SELECT} ORDER BY p.started_at DESC, p.id DESC LIMIT ?", (limit,)))
 
 
 def feed_polls_all(conn: sqlite3.Connection, source: str | None = None) -> list[sqlite3.Row]:
     """The whole poll history. `plan_window` is pure and takes this rather than a cursor."""
     if source:
         return list(conn.execute(
-            "SELECT * FROM feed_polls WHERE source=? ORDER BY started_at, id", (source,)))
-    return list(conn.execute("SELECT * FROM feed_polls ORDER BY started_at, id"))
+            f"{_POLL_SELECT} WHERE p.source=? ORDER BY p.started_at, p.id", (source,)))
+    return list(conn.execute(f"{_POLL_SELECT} ORDER BY p.started_at, p.id"))
 
 
 def feed_poll_for_file(conn: sqlite3.Connection, sha256: str) -> sqlite3.Row | None:
