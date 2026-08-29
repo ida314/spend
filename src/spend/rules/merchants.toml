@@ -1,0 +1,30 @@
+# Canonical merchant name -> the ugly fragments that mean it.
+#
+# Read on every rebuild, exactly like categories.toml, so adding a line here and running
+# `spend rebuild` renames eight months of history. It is checked *before* the mechanical
+# stripping in normalize.py, because a hand-written answer beats a derived one -- that is the
+# same precedence a manual correction has over the model.
+#
+# Matching is a case-folded substring test against the raw bank description, first match
+# wins, so order matters where two could both hit. Keep the specific ones above the general.
+#
+# You only need a line here when stripping gets it wrong. Most merchants need nothing.
+
+"Amazon"             = ["amzn mktp", "amazon.com", "amzn digital", "amazon prime"]
+"Apple"              = ["apple.com/bill", "apple store"]
+"Trader Joe's"       = ["trader joe"]
+"Whole Foods"        = ["whole foods", "wholefds"]
+"Blue Bottle Coffee" = ["blue bottle"]
+"Con Edison"         = ["con ed", "coned"]
+"Verizon"            = ["verizon", "vzwrlss"]
+"Uber"               = ["uber trip", "uber *trip"]
+"Uber Eats"          = ["uber eats", "ubereats"]
+"Lyft"               = ["lyft *ride", "lyft ride"]
+"DoorDash"           = ["doordash", "dd *doordash"]
+"Spotify"            = ["spotify"]
+"Netflix"            = ["netflix"]
+"MTA"                = ["mta*", "mta nyct", "metrocard"]
+"CVS"                = ["cvs/pharm", "cvs pharmacy"]
+"Duane Reade"        = ["duane reade"]
+"Key Food"           = ["key food", "keyfood"]
+"Capital One Autopay" = ["capital one autopay", "capital one   autopay"]

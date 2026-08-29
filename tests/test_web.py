@@ -7,6 +7,8 @@ be up cannot tell a broken page from a busy box.
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -15,7 +17,7 @@ from tests.conftest import FakeExtractor, ok
 
 
 @pytest.fixture
-def client(home, jpeg_bytes):
+def client(unlocked, jpeg_bytes):
     from spend.web.api import create_app
     app = create_app(extractor=FakeExtractor(ok(
         merchant="TRADER JOE'S", total="11.00", tax="1.00",
@@ -50,13 +52,21 @@ def test_a_receipt_the_worker_has_not_read_yet_is_shown_as_waiting(client, jpeg_
 
 
 def test_the_receipt_image_is_served_content_addressed(client, jpeg_bytes):
-    loc = upload(client, jpeg_bytes).headers["location"]
-    r = client.get(f"{loc}/image")
+    """The URL is the hash, so `immutable` is true by construction rather than by trusting
+    that a replay-assigned integer id never shifts."""
+    sha = hashlib.sha256(jpeg_bytes).hexdigest()
+    upload(client, jpeg_bytes)
+    r = client.get(f"/img/{sha}")
     assert r.status_code == 200
-    assert r.content == jpeg_bytes
-    assert r.headers["etag"].strip('"')
+    assert r.content == jpeg_bytes          # decrypted on the way out
+    assert r.headers["etag"].strip('"') == sha
     assert "immutable" in r.headers["cache-control"]
     assert "private" in r.headers["cache-control"]
+
+
+def test_an_image_url_that_is_not_a_hash_is_a_404_not_a_500(client):
+    assert client.get("/img/../../etc/passwd").status_code == 404
+    assert client.get("/img/deadbeef").status_code == 404
 
 
 def test_a_file_type_the_renderer_cannot_read_is_refused_and_says_so(client):

@@ -14,7 +14,12 @@ dependencies = [
     "python-multipart>=0.0.18",  # FastAPI needs it to parse the upload form
     "pydantic>=2.9",
     "pillow>=11.0",
-    "rapidocr-onnxruntime>=1.4",  # pip-only OCR: no tesseract, no sudo, no GPU
+    "rapidocr-onnxruntime>=1.4",
+    # age encryption. A wheel rather than the `age` binary: a subprocess dependency
+    # is not expressible in uv.lock, and the whole deploy story is that the image and
+    # `uv sync` install the same resolution. cp310-abi3 covers 3.12 in the container
+    # and 3.14 on the host from one wheel.
+    "pyrage>=1.4",  # pip-only OCR: no tesseract, no sudo, no GPU
     "sir-client",  # the box's inference front door; see [tool.uv.sources]
 ]
 

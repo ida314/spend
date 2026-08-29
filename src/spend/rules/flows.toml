@@ -1,0 +1,42 @@
+# Is this money leaving the household, or moving inside it?
+#
+# A second axis, orthogonal to category. `category` answers *what kind of thing was bought*;
+# `flow` answers *whether anything was bought at all*. They are independent questions, which
+# is why this is not two more values bolted onto the ten-value category enum.
+#
+# Matched against the RAW bank description, before normalization, because normalization is
+# built to strip exactly the words this file needs -- "AUTOPAY PYMT" and "TRANSFER TO" are
+# trailing noise to a merchant name and are the entire signal here.
+#
+# First match wins, most specific first. Read at projection time: edit this, run
+# `spend rebuild`, and every historical card payment stops being counted as spending.
+#
+# This file is the defence against the single worst error this system can make. When
+# $1,204.11 moves from checking to the Quicksilver card it appears twice -- an outflow on
+# checking and a credit on the card -- and neither is spending. The spending was the
+# individual charges on the card, and those are already in the ledger. A row matched here
+# gets net_spend_cents = 0, which is what makes summing the whole ledger with no WHERE
+# clause give the right answer.
+
+[payment]
+patterns = ["autopay pymt", "capital one autopay", "payment thank you", "payment - thank you",
+            "apple card payment", "online payment", "electronic payment", "card payment",
+            "ach pmt", "pymt to", "credit card payment", "bill payment", "epay",
+            # Apple Card writes its payments this way. Its `Type` column says "Payment"
+            # outright and the adapter carries that through, so this is belt and braces --
+            # but a pattern here also catches the same wording arriving from another feed.
+            "ach deposit internet transfer", "internet transfer from"]
+
+[transfer]
+patterns = ["transfer to", "transfer from", "internal transfer", "online transfer",
+            "zelle", "venmo", "cash app", "cashapp", "atm withdrawal", "atm cash",
+            "wire transfer", "to savings", "from savings", "withdrawal to"]
+
+[income]
+patterns = ["payroll", "direct dep", "dir dep", "salary", "dividend", "interest paid",
+            "tax refund", "irs treas", "deposit from", "reimbursement"]
+
+[fee]
+patterns = ["interest charge", "annual membership fee", "annual fee",
+            "foreign transaction fee", "late fee", "atm fee", "overdraft",
+            "service charge", "returned item", "cash advance fee"]

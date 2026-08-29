@@ -13,7 +13,7 @@ import logging
 import sqlite3
 from pathlib import Path
 
-from spend import config, paths, render, store
+from spend import config, keys, paths, render, replay, seal, store
 from spend.extract.base import Extraction, Extractor
 from spend.project import Rules, project
 
@@ -39,11 +39,15 @@ def ingest_bytes(
     conn: sqlite3.Connection, data: bytes, *, mime: str, source: str = "upload",
     external_id: str | None = None, source_meta: dict | None = None,
 ) -> tuple[int, bool]:
-    """Store a receipt's bytes and record it. Returns (receipt_id, is_new).
+    """Seal a receipt's bytes and record it. Returns (receipt_id, is_new).
 
-    The file is written before the row, and named by its own hash. A crash between the two
-    leaves an orphaned file in the receipts directory, which is inert; the other order
-    would leave a row pointing at nothing, which every later read has to defend against.
+    The blob is sealed before the event is appended, and the event is appended before the
+    cache row is written. A crash anywhere in that chain leaves something inert -- an
+    orphaned sealed blob, or an event the next unlock picks up -- never a row pointing at
+    nothing, which every later read would have to defend against.
+
+    Both writes are content-addressed and both are idempotent, so re-uploading the same
+    photograph touches no file at all.
     """
     mime = (mime or "").split(";")[0].strip().lower()
     if mime not in EXTENSIONS:
@@ -56,16 +60,20 @@ def ingest_bytes(
 
     import hashlib
     sha = hashlib.sha256(data).hexdigest()
-    dest = paths.receipt_path(sha, EXTENSIONS[mime])
-    if not dest.exists():
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        tmp = dest.with_suffix(dest.suffix + ".part")
-        tmp.write_bytes(data)
-        tmp.rename(dest)  # atomic within a filesystem: no half-written receipt is visible
+    dest = paths.blob_path(sha)
+    seal.seal_to(dest, data)
 
-    rid, is_new = store.insert_receipt(
-        conn, sha256=sha, path=str(dest.relative_to(paths.receipts_dir())), mime=mime,
-        bytes_=len(data), source=source, external_id=external_id, source_meta=source_meta)
+    known = conn.execute("SELECT 1 FROM receipts WHERE sha256=?", (sha,)).fetchone()
+    rid = replay.record(conn, "receipt", {
+        "sha256": sha,
+        "blob": str(dest.relative_to(paths.blobs_dir())),
+        "mime": mime,
+        "bytes": len(data),
+        "source": source,
+        "external_id": external_id,
+        "source_meta": source_meta,
+    })
+    is_new = known is None
     if is_new:
         reproject(conn, rid)
     return rid, is_new
@@ -79,8 +87,16 @@ def ingest_file(conn: sqlite3.Connection, path: Path, **kw) -> tuple[int, bool]:
     return ingest_bytes(conn, path.read_bytes(), mime=mime, **kw)
 
 
-def absolute_path(row: sqlite3.Row) -> Path:
-    return paths.receipts_dir() / row["path"]
+def blob_bytes(row: sqlite3.Row) -> bytes:
+    """One receipt's original bytes, decrypted into memory.
+
+    Per request, never in bulk, and never written back out plaintext: the runtime tmpfs is
+    measured in hundreds of megabytes and a year of phone photographs is not. A streaming
+    `decrypt_io` through a pipe would be the memory-optimal shape and is what to reach for
+    the day something larger than a 25 MiB upload arrives; one phone and one photograph at a
+    time does not justify the thread.
+    """
+    return seal.open_file(paths.blob_path(row["sha256"]), keys.require_identity())
 
 
 async def extract_one(
@@ -98,26 +114,27 @@ async def extract_one(
 
     mode = config.RENDER_MODE
     try:
-        doc = render.render(absolute_path(row), row["sha256"], mode)
-    except (render.RenderError, OSError) as exc:
+        doc = render.render(blob_bytes(row), row["sha256"], mode)
+    except (render.RenderError, seal.SealError, OSError) as exc:
         result = Extraction(status="error", note=f"render: {exc}")
-        store.insert_extraction(
-            conn, receipt_id=receipt_id, status=result.status,
-            model=getattr(extractor, "model", config.MODEL),
-            prompt_version=getattr(extractor, "prompt_version", "?"),
-            render_mode=mode, note=result.note)
+        replay.record(conn, "extraction", {
+            "receipt": row["sha256"], "status": result.status,
+            "model": getattr(extractor, "model", config.MODEL),
+            "prompt_version": getattr(extractor, "prompt_version", "?"),
+            "render_mode": mode, "raw_response": None, "payload": None,
+            "note": result.note, "latency_ms": None})
         conn.commit()
         reproject(conn, receipt_id)
         return result
 
     result = await extractor.extract(doc)
-    store.insert_extraction(
-        conn, receipt_id=receipt_id, status=result.status,
-        model=getattr(extractor, "model", config.MODEL),
-        prompt_version=getattr(extractor, "prompt_version", "?"),
-        render_mode=doc.mode, raw_response=result.raw_response,
-        payload=result.data.model_dump(mode="json") if result.data else None,
-        note=result.note, latency_ms=result.latency_ms)
+    replay.record(conn, "extraction", {
+        "receipt": row["sha256"], "status": result.status,
+        "model": getattr(extractor, "model", config.MODEL),
+        "prompt_version": getattr(extractor, "prompt_version", "?"),
+        "render_mode": doc.mode, "raw_response": result.raw_response,
+        "payload": result.data.model_dump(mode="json") if result.data else None,
+        "note": result.note, "latency_ms": result.latency_ms})
     conn.commit()
     reproject(conn, receipt_id)
     return result
@@ -156,6 +173,9 @@ def rebuild(conn: sqlite3.Connection) -> int:
         )
         store.write_projection(conn, txn, items)
     conn.commit()
+    # Both projections, always. `clear_projections` empties the feed tables too, so a rebuild
+    # that only re-derived receipts would leave the ledger looking like an empty year.
+    reproject_feeds(conn)
     return len(ids)
 
 
@@ -165,14 +185,19 @@ def correct(conn: sqlite3.Connection, receipt_id: int, changes: dict[str, str | 
     A value equal to what the projection already shows is dropped rather than appended:
     submitting an unchanged form should not grow the correction log.
     """
+    row = store.get_receipt(conn, receipt_id)
+    if row is None:
+        raise LookupError(f"no receipt {receipt_id}")
+    sha = row["sha256"]
     current = conn.execute(
         "SELECT * FROM transactions WHERE receipt_id=?", (receipt_id,)).fetchone()
     written = 0
     for field, value in changes.items():
         if current is not None and _unchanged(current, field, value):
             continue
-        store.insert_correction(conn, receipt_id=receipt_id, field=field,
-                                value=value if value not in ("", None) else None)
+        replay.record(conn, "correction", {
+            "receipt": sha, "field": field,
+            "value": value if value not in ("", None) else None})
         written += 1
     if written:
         conn.commit()
@@ -210,3 +235,104 @@ def summary(conn: sqlite3.Connection) -> dict:
         "SELECT COUNT(*) FROM transactions WHERE deleted=0 AND status='needs_review'"
     ).fetchone()[0]
     return c
+
+
+# --- feeds ---------------------------------------------------------------------------------
+
+def record_poll(conn: sqlite3.Connection, poll) -> dict:
+    """Seal one poll's outcome and everything it saw. Returns a small summary.
+
+    Every attempt is recorded, including the ones that returned nothing, and the source's own
+    error list is recorded verbatim rather than raised. That is not tidiness: an empty
+    transaction list from a feed that has been failing for two days is indistinguishable from
+    a quiet week, and this row is the only thing that can tell them apart. `docs/email-ingest.md`
+    already names the same rule for the mail path; it is the same mistake with a different feed.
+    """
+    from spend import feed, ledger      # noqa: PLC0415 - keeps the import graph acyclic
+
+    started = poll.detail.get("started_at") or ledger.now()
+    body = {
+        "source": poll.source, "outcome": poll.outcome,
+        "started_at": started, "finished_at": ledger.now(),
+        "window_from": poll.window.start.isoformat() if poll.window else None,
+        "window_to": poll.window.end.isoformat() if poll.window else None,
+        "http_status": poll.http_status,
+        "file_sha256": poll.file_sha256, "file_name": poll.file_name,
+        "accounts_seen": len(poll.accounts), "records_seen": len(poll.records),
+        "records_new": 0,
+        "errors": [vars(e) for e in poll.errors] or None,
+        "note": poll.note,
+        "seen_ids": poll.seen_ids() or None,
+        "detail": {k: v for k, v in poll.detail.items() if k != "started_at"} or None,
+    }
+    # Appended and applied by hand rather than through `replay.record`, because the child
+    # records need this event's digest as their `poll_uid` and `record` does not hand it back.
+    poll_rec, _ = ledger.append("feed_poll", body)
+    replay.apply(conn, poll_rec)
+
+    new = 0
+    for account in poll.accounts:
+        raw = dict(account.raw)
+        replay.record(conn, "feed_account", {
+            "poll_uid": poll_rec.sha, "source": poll.source,
+            "native_id": account.native_id, "org_name": account.org_name,
+            "org_domain": account.org_domain, "org_id": account.org_id,
+            "name": account.name, "currency": account.currency,
+            "balance_cents": account.balance_cents,
+            "available_balance_cents": account.available_balance_cents,
+            "balance_at": account.balance_at,
+            "content_sha256": feed.content_sha_account(account), "raw": raw,
+        })
+
+    for record in poll.records:
+        before = conn.total_changes
+        replay.record(conn, "feed_record", {
+            "poll_uid": poll_rec.sha, "source": poll.source,
+            "native_account": record.native_account, "external_id": record.external_id,
+            "posted_at": record.posted_at, "transacted_at": record.transacted_at,
+            "pending": bool(record.pending), "amount_cents": record.amount_cents,
+            "currency": record.currency, "description": record.description,
+            "payee": record.payee, "memo": record.memo, "flow_hint": record.flow_hint,
+            "reject_reason": record.reject_reason,
+            "content_sha256": feed.content_sha(record), "raw": dict(record.raw),
+        })
+        new += conn.total_changes > before
+
+    # `records_new` is known only after the inserts, and the poll record was sealed before
+    # them -- deliberately, so a crash mid-import leaves a poll that says what it attempted
+    # rather than no trace at all. The count is a convenience on the cache row; the log's
+    # own answer is how many feed_record events carry this poll_uid.
+    conn.execute("UPDATE feed_polls SET records_new=? WHERE uid=?", (new, poll_rec.sha))
+    conn.commit()
+    return {"poll_uid": poll_rec.sha, "records": len(poll.records), "new": new,
+            "outcome": poll.outcome, "errors": len(poll.errors)}
+
+
+def reproject_feeds(conn: sqlite3.Connection, ctx=None) -> int:
+    """Recompute every feed transaction and account row from the observations."""
+    from spend import feed      # noqa: PLC0415
+    ctx = ctx or feed.Context.load()
+    rows = feed.project_all(list(store.feed_records_grouped(conn)),
+                            store.feed_corrections_all(conn), ctx)
+    store.write_feed_transactions(conn, rows)
+    store.write_accounts(conn, feed.account_rows(store.feed_account_latest(conn), rows, ctx))
+    conn.commit()
+    return len(rows)
+
+
+def correct_feed(conn: sqlite3.Connection, txn_key: str,
+                 changes: dict[str, str | None]) -> int:
+    """Append edits to a feed transaction and reproject. Same shape as `correct`."""
+    from spend import feed      # noqa: PLC0415
+    written = 0
+    for field, value in changes.items():
+        if field not in feed.CORRECTABLE:
+            continue
+        replay.record(conn, "feed_correction", {
+            "txn_key": txn_key, "field": field,
+            "value": value if value not in ("", None) else None})
+        written += 1
+    if written:
+        conn.commit()
+        reproject_feeds(conn)
+    return written

@@ -11,7 +11,7 @@ import re
 
 import pytest
 
-from spend import store
+from spend import paths, seal, store
 from spend.extract.base import Extraction
 from spend.service import correct, extract_one, ingest_bytes, rebuild
 from tests.conftest import FakeExtractor, ok
@@ -42,7 +42,8 @@ async def seed(conn, jpeg_bytes, extractor=None, n: int = 1) -> list[int]:
 
 # --- append-only ------------------------------------------------------------------------
 
-TRUTH = ("receipts", "extractions", "corrections")
+TRUTH = ("receipts", "extractions", "corrections",
+         "feed_polls", "feed_accounts", "feed_records", "feed_corrections")
 _WRITE = re.compile(r"^\s*(UPDATE|DELETE\s+FROM)\s+[\"'`]?(\w+)", re.I)
 
 
@@ -163,14 +164,17 @@ def test_the_same_bytes_twice_is_one_receipt(conn, jpeg_bytes):
     assert conn.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 1
 
 
-def test_a_receipt_is_stored_under_its_own_hash(conn, jpeg_bytes):
+def test_a_receipt_is_sealed_under_its_own_hash(conn, jpeg_bytes):
     import hashlib
 
-    from spend.service import absolute_path
+    from spend.service import blob_bytes
     rid, _ = ingest_bytes(conn, jpeg_bytes, mime="image/jpeg")
     row = store.get_receipt(conn, rid)
-    assert row["sha256"] == hashlib.sha256(jpeg_bytes).hexdigest()
-    assert absolute_path(row).read_bytes() == jpeg_bytes
+    sha = hashlib.sha256(jpeg_bytes).hexdigest()
+    assert row["sha256"] == sha
+    # The name is the hash of the plaintext; the contents are not the plaintext.
+    assert paths.blob_path(sha).read_bytes().startswith(seal.MAGIC)
+    assert blob_bytes(row) == jpeg_bytes
 
 
 @pytest.mark.parametrize("mime", ["application/pdf", "text/html", "", "application/zip"])

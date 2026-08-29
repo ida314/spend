@@ -1,0 +1,39 @@
+# Your accounts, named by you.
+#
+# The key on the left is the account key this system uses everywhere: in the projection, in
+# the agent workspace, in every query you will ever write. It is deliberately *not* derived
+# from anything the bank or the Bridge hands out.
+#
+# That matters more than it looks. Reconnecting the SimpleFIN Bridge issues a fresh
+# `conn_id` and fresh account ids, and if history were keyed on those, the day you reconnect
+# would be the day your ledger silently forks in two at the seam. A CSV export has no account
+# id at all. Local identity is the only identity this system trusts, so it is written down
+# here, by hand, once.
+#
+# `native` lists every id that has ever meant this account -- a SimpleFIN account id, or a
+# `drop:<dialect>:<hint>` from a file import. Add to it; never replace it. That is also how a
+# CSV disaster-recovery import lands *on top of* the feed's own history instead of beside it.
+#
+# An account the feed reports that is not listed here is not dropped. It gets the key
+# `unmapped:<native_id>`, and `spend doctor` exits non-zero until you name it -- a bank
+# account silently missing from a spending tracker is the worst failure this system has.
+#
+# `spend feeds connect` prints a ready-to-paste stanza for everything it finds.
+
+# [cap1-checking]
+# name        = "Capital One 360 Checking"
+# kind        = "checking"          # checking | savings | credit | other
+# institution = "Capital One"
+# native      = ["ACT-1a2b3c4d", "drop:capitalone-checking:4471"]
+
+# [cap1-quicksilver]
+# name        = "Capital One Quicksilver"
+# kind        = "credit"
+# institution = "Capital One"
+# native      = ["ACT-5e6f7g8h", "drop:capitalone-credit:7734"]
+
+# [apple-card]
+# name        = "Apple Card"
+# kind        = "credit"
+# institution = "Apple"
+# native      = ["drop:applecard:apple-card"]

@@ -20,17 +20,17 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from spend import config, paths, store
+from spend import config, keys, paths, seal, store
 from spend.branding import NAME, TAGLINE
 from spend.money import format_cents
 from spend.schema import CATEGORIES
 from spend.service import (
     IngestError,
-    absolute_path,
+    blob_bytes,
     correct,
     ingest_bytes,
     summary,
@@ -138,22 +138,36 @@ def create_app(extractor=None) -> FastAPI:
             "categories": CATEGORIES, "editable": EDITABLE,
         })
 
-    @app.get("/r/{receipt_id}/image")
-    def image(receipt_id: int):
+    @app.get("/img/{sha256}")
+    def image(sha256: str):
+        """Addressed by content hash, not by receipt id.
+
+        The old `/r/{id}/image` was served `immutable, max-age=31536000`, which tells the
+        phone never to revalidate -- a bet that a receipt's integer id never changes. Ids are
+        now assigned by replay, and although replay is deterministic, a URL cached forever is
+        not a good place to rest on that. Hashing the URL makes the header correct by
+        construction rather than correct-if-nothing-shifts.
+        """
+        if not sha256.isalnum() or len(sha256) != 64:
+            raise HTTPException(404, "no such receipt")
         conn = store.connect()
         try:
-            row = store.get_receipt(conn, receipt_id)
+            row = conn.execute("SELECT * FROM receipts WHERE sha256=?", (sha256,)).fetchone()
         finally:
             conn.close()
         if row is None:
             raise HTTPException(404, "no such receipt")
-        path = absolute_path(row)
-        if not path.exists():
-            raise HTTPException(410, "the file behind this receipt is gone")
-        # Content-addressed, so the bytes at this URL can never change for this id.
-        # Private, because a receipt is nobody else's business to cache.
-        return FileResponse(path, media_type=row["mime"], headers={
-            "ETag": f'"{row["sha256"]}"',
+        try:
+            data = blob_bytes(row)
+        except keys.Locked as exc:
+            raise HTTPException(503, str(exc)) from exc
+        except seal.SealError as exc:
+            raise HTTPException(410, f"the file behind this receipt is unreadable: {exc}") from exc
+        # Private, because a receipt is nobody else's business to cache. Worth naming: the
+        # phone's own HTTP cache now holds plaintext receipt images. That is the user's own
+        # device and it is fine, but it should be said rather than discovered.
+        return Response(data, media_type=row["mime"], headers={
+            "ETag": f'"{sha256}"',
             "Cache-Control": "private, max-age=31536000, immutable"})
 
     # --- actions -------------------------------------------------------------------
@@ -245,7 +259,8 @@ def create_app(extractor=None) -> FastAPI:
                 "model": config.MODEL, "sir": config.SIR_BASE_URL,
                 "render_mode": config.RENDER_MODE,
                 "worker_last_error": getattr(request.app.state.worker, "last_error", None),
-                "db": str(paths.db_path()), "receipts": str(paths.receipts_dir()),
+                "db": str(paths.db_path()), "blobs": str(paths.blobs_dir()),
+                "locked": not keys.is_unlocked(),
             }
         finally:
             conn.close()

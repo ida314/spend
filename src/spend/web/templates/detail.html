@@ -6,7 +6,7 @@
 {# The receipt first, the numbers under it. Checking a total against the paper it came
    from is the whole reason the image is kept, so it does not go behind a tab. #}
 <figure class="receipt">
-  <img src="/r/{{ receipt.id }}/image" alt="Receipt {{ receipt.id }}" loading="eager">
+  <img src="/img/{{ receipt.sha256 }}" alt="Receipt {{ receipt.id }}" loading="eager">
 </figure>
 
 {% if txn.status == 'needs_review' %}

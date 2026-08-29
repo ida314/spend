@@ -53,16 +53,19 @@ def _register_heif() -> None:
     pillow_heif.register_heif_opener()
 
 
-def load_image(path: Path) -> Image.Image:
+def load_image(data: bytes) -> Image.Image:
+    """From bytes, not a path. The receipt originals are sealed, so there is no plaintext
+    file to open -- and taking bytes here removes the last place image content could be read
+    from an unencrypted path by accident."""
     _register_heif()
     try:
-        img = Image.open(path)
+        img = Image.open(io.BytesIO(data))
         # A phone writes the sensor's orientation into EXIF rather than rotating pixels.
         # OCR reads a sideways receipt as noise, so this is load-bearing, not cosmetic.
         img = ImageOps.exif_transpose(img)
         return img.convert("RGB")
     except OSError as exc:
-        raise RenderError(f"cannot decode {path.name}: {exc}") from exc
+        raise RenderError(f"cannot decode {len(data)} bytes of image: {exc}") from exc
 
 
 def downscale(img: Image.Image, max_edge: int | None = None) -> Image.Image:
@@ -74,17 +77,22 @@ def downscale(img: Image.Image, max_edge: int | None = None) -> Image.Image:
                       Image.LANCZOS)
 
 
-def render_jpeg(path: Path, sha256: str) -> bytes:
-    """The downscaled JPEG both modes work from, cached by content hash."""
+def render_jpeg(data: bytes, sha256: str) -> bytes:
+    """The downscaled JPEG both modes work from, cached by content hash.
+
+    The cache is on tmpfs now and it holds plaintext receipt content, so it is budgeted
+    rather than unbounded -- see `evict`.
+    """
     cache = paths.render_dir() / f"{sha256}.jpg"
     if cache.exists():
         return cache.read_bytes()
     buf = io.BytesIO()
-    downscale(load_image(path)).save(buf, "JPEG", quality=config.JPEG_QUALITY)
-    data = buf.getvalue()
+    downscale(load_image(data)).save(buf, "JPEG", quality=config.JPEG_QUALITY)
+    jpeg = buf.getvalue()
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_bytes(data)
-    return data
+    evict()
+    cache.write_bytes(jpeg)
+    return jpeg
 
 
 def layout_text(result) -> str:
@@ -142,9 +150,9 @@ def ocr_text(jpeg: bytes, sha256: str) -> str:
     return text
 
 
-def render(path: Path, sha256: str, mode: str | None = None) -> Document:
+def render(data: bytes, sha256: str, mode: str | None = None) -> Document:
     mode = mode or config.RENDER_MODE
-    jpeg = render_jpeg(path, sha256)
+    jpeg = render_jpeg(data, sha256)
     if mode == "image":
         return Document(mode="image", image_b64=base64.b64encode(jpeg).decode(),
                         meta={"bytes": len(jpeg)})
@@ -158,6 +166,28 @@ def render(path: Path, sha256: str, mode: str | None = None) -> Document:
 def render_text(body: str) -> Document:
     """For a receipt that was already text — an emailed confirmation, later."""
     return Document(mode="text", text=body, meta={"chars": len(body)})
+
+
+def evict(budget: int | None = None) -> int:
+    """Keep the render cache inside its budget, oldest first. Returns bytes removed.
+
+    It lives on a tmpfs measured in hundreds of megabytes and shared with the SQLite cache,
+    so it cannot be allowed to grow to the size of the corpus. The working set is the
+    worker's backlog, not the archive, and everything here is regenerable from a sealed blob.
+    """
+    budget = config.RENDER_CACHE_BYTES if budget is None else budget
+    root = paths.render_dir()
+    if not root.exists():
+        return 0
+    files = [(f.stat().st_mtime, f.stat().st_size, f) for f in root.iterdir() if f.is_file()]
+    total = sum(size for _, size, _ in files)
+    freed = 0
+    for _, size, f in sorted(files):
+        if total - freed <= budget:
+            break
+        f.unlink(missing_ok=True)
+        freed += size
+    return freed
 
 
 def sha256_file(path: Path) -> str:

@@ -70,4 +70,23 @@ WORKER_BACKOFF_MAX = 300.0
 
 MAX_UPLOAD_BYTES = int(_get("MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
 
+# --- the store ---------------------------------------------------------------------
+# The render cache is plaintext receipt content on a tmpfs shared with the database,
+# so it is budgeted rather than unbounded. A 1600px JPEG is ~300 KB, so this is a few
+# hundred receipts -- far more than the worker's backlog, which is the working set.
+RENDER_CACHE_BYTES = int(_get("RENDER_CACHE_BYTES", 64 * 1024 * 1024))
+
+# How long an unlock lasts before the store relocks itself.
+LOCK_TTL_HOURS = float(_get("LOCK_TTL_HOURS", 8))
+
+# Which deploy path `unlock`/`lock` should start and stop: systemd | compose | none.
+# Explicit, because sniffing it would guess wrong on a box that has both installed --
+# and this repo says in four places that both must never run at once.
+DEPLOY = _get("DEPLOY", "none")
+
+# How long an account may go without new data before `doctor` calls it stale.
+# Three days: the Bridge refreshes daily, so two consecutive misses is a signal
+# and one is a bank having a slow night.
+FEED_STALE_DAYS = int(_get("FEED_STALE_DAYS", 3))
+
 TZ = _get("TZ", os.environ.get("TZ", "America/New_York"))
