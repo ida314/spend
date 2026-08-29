@@ -1,33 +1,40 @@
 # spend
 
-Photograph a receipt; get a categorised transaction with its line items, and keep the
-photograph next to it. Runs on the homelab, reads with the box's own model, and holds no
-API keys because nothing leaves the tailnet.
+Photograph a receipt, or let it pull your statements — get a categorised transaction
+either way. Runs on the homelab, reads with the box's own model, and keeps everything it
+stores encrypted at rest.
 
 ```
-iPhone ──tailnet──> :8089 ──> receipts/ on disk (content-addressed)
-                       │
-                  SQLite: receipts        append-only
-                       │
-              RapidOCR on this box        ~0.8s
-                       │
-              sir ──> Qwen3.6-27B         ~35s
-                       │
-                  extractions             append-only
-                       │
-        + corrections + categories.toml
-                       ▼
-            transactions, line_items      derived, rebuildable
+iPhone ──tailnet──> :8089 ─┐                 SimpleFIN ─┐   CSV/OFX drop ─┐
+                           │                            │                 │
+                RapidOCR ──┤  ~0.8s                     └───── sources/ ───┘
+                sir ───────┤  ~35s                              │
+                Qwen3.6-27B│                                    │
+                           ▼                                    ▼
+                   ┌──────────────────────────────────────────────────┐
+                   │  log/<ab>/<sha256>.age   append-only, sealed      │
+                   │  blobs/<ab>/<sha256>.age the photographs          │
+                   └──────────────────────────────────────────────────┘
+                           │  spend unlock: decrypt, replay
+                           ▼
+                   SQLite on tmpfs — a cache, gone at `spend lock`
+                           │
+        + corrections + categories.toml + merchants.toml + flows.toml
+                           ▼
+     transactions · feed_transactions · accounts   derived, rebuildable
+                           │
+                           ▼
+                   spend agent build → a directory an agent reads
 ```
 
-## The one thing worth knowing
+## The two things worth knowing
 
 **Model output is truth; a transaction is a projection.**
 
-`receipts`, `extractions` and `corrections` are append-only — nothing in this codebase
-issues an `UPDATE` or `DELETE` against them, and a test traces every statement to prove
-it. `transactions` and `line_items` are derived, and `spend rebuild` recomputes
-all of them from the log.
+`receipts`, `extractions`, `corrections` and the four `feed_*` tables are append-only —
+nothing in this codebase issues an `UPDATE` or `DELETE` against them, and a test traces
+every statement to prove it. `transactions`, `feed_transactions`, `line_items` and
+`accounts` are derived, and `spend rebuild` recomputes all of them from the log.
 
 That is not ceremony; it is what makes the fallible parts safe to improve:
 
@@ -39,6 +46,24 @@ That is not ceremony; it is what makes the fallible parts safe to improve:
 The third one is not hypothetical. The first receipt this ever read contained `2 @ 0.745`,
 a sub-cent unit price that the money parser read as `$745.00`. The fix was six lines in
 `money.py` and a `rebuild`; no receipt was re-extracted.
+
+**The database is a cache. The sealed log is the only thing that must survive.**
+
+That is the same idea one step further. Truth lives on disk as age-encrypted files, one per
+event, and SQLite is rebuilt from them into tmpfs at `spend unlock` and deleted at
+`spend lock`. Nothing durable is ever plaintext.
+
+The shape has a payoff beyond privacy: age encrypts to a *public* key, so the nightly bank
+pull holds nothing secret. It appends sealed transactions all night and is structurally
+incapable of reading one back. Your statements keep arriving while the store is locked.
+
+**Lose the passphrase and the data is gone.** There is no backdoor, no reset and no support
+line. `spend init` prints a second, paper-backup key exactly once — write it down. That is
+the only thing standing between a forgotten passphrase and losing everything.
+
+See [docs/encryption.md](docs/encryption.md), which also carries the one prerequisite this
+cannot do for you: **encrypted swap**. tmpfs pages get paged out, and an unencrypted
+swapfile puts the decrypted ledger back on the disk. `spend doctor` checks it every run.
 
 ## Failure is absence, never a wrong answer
 
@@ -53,6 +78,8 @@ list that could equally mean "you spent nothing" or "inference has been down for
 ## Running it
 
 ```bash
+spend init                                # once. Write the printed backup key on PAPER.
+spend unlock                              # decrypts, replays the log, starts the service
 docker compose up -d --build
 docker compose exec spend spend doctor    # what did this process actually resolve?
 tailscale serve --service=svc:spend --https=443 http://127.0.0.1:8089
@@ -89,7 +116,9 @@ a container that sleeps until 03:30 is a worse one:
 with no Docker, and for developing against the real database:
 
 ```bash
-uv sync
+uv sync --extra dev
+uv run spend init                      # once
+uv run spend unlock
 uv run spend ingest ~/r.jpg
 uv run spend extract
 uv run spend serve                     # http://127.0.0.1:8089
@@ -101,26 +130,33 @@ uv run pytest                          # no GPU, no network, no sir
 The container bind-mounts the same `~/.local/share/spend` these commands use, so the two
 paths see one database and one set of receipts. Switching is stopping one and starting the
 other — no export, no import. Do not run both at once: each carries the extraction worker,
-and two of those send the same receipt to `sir` twice.
+and two of those send the same receipt to `sir` twice. Worse now — `spend unlock` deletes
+the cache out from under whatever is holding it. `keys.exclusive()` makes that fail loudly
+rather than silently, but do not rely on it.
 
 ## Where things are
 
+Three roots, divided by their relationship with **the key**.
+
 | | |
 |---|---|
-| database | `~/.local/share/spend/spend.db` |
-| receipts | `~/.local/share/spend/receipts/<ab>/<sha256>.jpg` |
-| render cache | `~/.cache/spend/render/` — derived, delete freely |
-| config | `~/.config/spend/config.toml`, overridden by `SPEND_*` |
-| backups | `~/backups/spend/` — `spend backup`, nightly under either deploy path |
+| sealed log | `~/.local/share/spend/log/<ab>/<sha256>.age` — the only irreplaceable thing |
+| sealed photographs | `~/.local/share/spend/blobs/<ab>/<sha256>.age` |
+| statement drop folder | `~/.local/share/spend/drop/inbox/` — CSV and OFX go here |
+| recipients | `~/.config/spend/recipients.txt` — public keys, not secret |
+| identity | `~/.config/spend/identity.age` — wrapped in your passphrase |
+| accounts | `~/.config/spend/accounts.toml` — which native account is which of yours |
+| cache, workspace | `$XDG_RUNTIME_DIR/spend/` — plaintext, tmpfs, gone at `lock` |
+| backups | `~/backups/spend/` — ciphertext, so this runs while locked |
 
-Back up the first two; `spend backup` does exactly that, and uses `VACUUM INTO` rather
-than a file copy because a WAL database copied without its `-wal` opens cleanly and is
-missing the last writes.
+`spend backup` copies the first two plus the wrapped identity. There is no `VACUUM INTO`
+any more and no database in a backup: the database is a cache, so a backup is a file copy
+of things that are already encrypted, and the nightly timer never holds a key.
 
-`SPEND_HOME` repoints the first four at once, which is how the tests avoid the real
-database. The container sets the three XDG variables instead, so the same directories land
-at `/var/lib/spend`, `/var/cache/spend` and `/etc/spend` inside it — the host paths above
-are still where the bytes are.
+`SPEND_HOME` repoints everything at once, which is how the tests avoid the real store. The
+container sets `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `SPEND_RUNTIME_DIR` instead, and
+bind-mounts the host's own tmpfs at `/run/spend` so that `spend unlock` on the host unlocks
+the container too — one passphrase and one cache, not two that can disagree.
 
 ## Reading, not seeing
 
@@ -130,8 +166,45 @@ limitation, not a model one, and it is written up in
 [docs/spike-vision.md](docs/spike-vision.md). `SPEND_RENDER_MODE=image` is wired
 and waiting.
 
+## Statements
+
+```bash
+spend feeds connect <setup-token>   # once, from bridge.simplefin.org
+spend feeds sync                    # the nightly timer runs this
+spend feeds import                  # CSV/OFX dropped in ~/.local/share/spend/drop/inbox
+```
+
+Capital One over SimpleFIN, Apple Card by monthly export — **take the OFX, not the CSV**, it
+carries stable ids. Both land in `feed_transactions`, which is kept deliberately separate
+from receipt-derived `transactions`: matching the two is a later feature, and the fields
+that make that join cheap are already indexed.
+
+Every row carries `net_spend_cents`, which is zero for transfers, card payments and income.
+Sum it over anything, with no `WHERE` clause, and the answer is right. That matters because
+a card payment appears in the ledger **twice** — one leg per account — and neither is
+spending. [docs/bank-feeds.md](docs/bank-feeds.md) works the example through.
+
+## Handing it to an agent
+
+```bash
+spend agent build
+cd $(spend agent path)
+```
+
+A directory holding partitioned JSONL for grep, a rebuilt `ledger.db` for aggregation,
+eight worked queries, and a `CLAUDE.md` that states the sign convention and the units
+before an agent touches a number. It lives on tmpfs and is gone at `spend lock`.
+
+Receipt-derived rows are materialised alongside the statements, in separate files, and
+every one of them nets to zero — enforced by a `CHECK` constraint. The two streams describe
+overlapping reality and are **not** deduplicated, so the arithmetic is what stops an agent
+adding a photographed lunch to the statement line for the same lunch.
+
 ## Not built yet
 
 Emailed receipts. The schema, the ingest call and the text path are all in place; the
 contract we will need from `email-tracker` — which is itself unwritten — is recorded in
 [docs/email-ingest.md](docs/email-ingest.md).
+
+Matching receipts to statement lines. `queries/07-receipt-candidates.sql` proposes pairs
+and asserts nothing; `duplicate_suspect` is the primitive the real matcher will reuse.
