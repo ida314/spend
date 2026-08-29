@@ -51,17 +51,18 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 
 # The three roots stay three roots (see src/spend/paths.py): /var/lib is irreplaceable and
-# is what you back up, /var/cache is derived and can be dropped on the floor, /etc is by
-# hand. SPEND_HOME would collapse them into one, which would put the render cache inside
+# is ciphertext and what you back up, /run/spend is plaintext on tmpfs and dies with the
+# container, /etc is by hand. SPEND_HOME would collapse them into one, which would put
 # the volume that has to survive.
 ENV XDG_DATA_HOME=/var/lib \
-    XDG_CACHE_HOME=/var/cache \
-    XDG_CONFIG_HOME=/etc
+    XDG_CONFIG_HOME=/etc \
+    SPEND_RUNTIME_DIR=/run/spend
 
 # Pre-created and owned, because the process is not root and `ensure_dirs()` would be
 # creating /etc/spend. A fresh named volume mounted over one of these inherits its
 # ownership from the image; a bind mount does not, and is yours to chown.
-RUN install -d -o 1000 -g 1000 /var/lib/spend /var/cache/spend /etc/spend /backups
+RUN install -d -o 1000 -g 1000 -m 700 /run/spend \
+ && install -d -o 1000 -g 1000 /var/lib/spend /etc/spend /backups
 
 # Loopback inside a container reaches nothing outside it. The isolation here is the
 # published port, which compose pins to the host's 127.0.0.1 — see compose.yaml.

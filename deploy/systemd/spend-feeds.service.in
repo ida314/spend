@@ -1,0 +1,35 @@
+# Generated from this template by scripts/service-install.sh — edit the template.
+#
+# The nightly bank pull. This is the one unit that runs while the store is LOCKED, and the
+# whole encryption design is arranged so that it can.
+#
+# It holds `recipients.txt` — age *public* keys — and the SimpleFIN access URL, and nothing
+# else. age encrypts to a public key, so this can append sealed events to the log all night
+# and is structurally incapable of reading a single historical transaction back. The
+# ReadWritePaths below is not decoration: it is what makes that a property of the system
+# rather than a claim in a docstring. This unit can write log/ and can touch nothing else.
+#
+# One request per run, at a randomised minute. The protocol allows 24 a day; the planner
+# holds four back for a human debugging at the terminal.
+
+[Unit]
+Description=spend — pull new statement transactions
+Documentation=file://@REPO@/docs/bank-feeds.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO@
+ExecStart=@VENV@/bin/spend feeds sync
+Environment=TZ=America/New_York
+Environment=PYTHONUNBUFFERED=1
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+# The log, and nothing else. Not the blobs, not the config, not the runtime directory.
+ReadWritePaths=%h/.local/share/spend/log

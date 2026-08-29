@@ -38,8 +38,15 @@ for template in "$REPO"/deploy/systemd/*.in; do
 done
 
 systemctl --user daemon-reload
-systemctl --user enable --now spend.service
+
+# The timers are enabled; the service is not, and that is deliberate. Both timers run while
+# the store is locked -- the backup copies ciphertext and needs no key, and the feed pull
+# holds only public keys -- so they are safe to start at boot. The web app needs the
+# passphrase, so it is started by `spend unlock` and stopped by `spend lock`. A box that
+# reboots comes up locked, appending, and not serving.
 systemctl --user enable --now spend-backup.timer
+systemctl --user enable --now spend-feeds.timer
+systemctl --user disable spend.service 2>/dev/null || true
 
 # Survives logout. Without it the units stop when the last session ends, which on a
 # headless box means "after you close the ssh you used to install it".
@@ -47,10 +54,19 @@ loginctl enable-linger "$USER" 2>/dev/null || \
   echo "note: could not enable linger; the service will stop when your session ends"
 
 echo
-systemctl --user --no-pager --lines=0 status spend.service || true
+systemctl --user --no-pager --lines=0 list-timers 'spend-*' || true
 cat <<EOF
 
-Running on http://127.0.0.1:$PORT — loopback only.
+Timers are running. The web app is not: it needs your passphrase.
+
+    spend init      once, to make the key   (write the printed backup key on PAPER)
+    spend unlock    replays the log and starts the service
+    spend lock      stops it and forgets everything decrypted
+
+Nothing under ~/.local/share/spend is readable without that passphrase, including by the
+nightly feed pull, which can append what it cannot read.
+
+Running on http://127.0.0.1:$PORT once unlocked — loopback only.
 
 To reach it from the phone, publish it on the tailnet:
 

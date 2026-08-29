@@ -8,9 +8,15 @@
 # reason the image exists.
 #
 # Both paths run the same command against the same directories, so switching is stopping
-# one and starting the other. They must not run at once: two processes with the same
-# SQLite file will not corrupt it, but they will both run the extraction worker and send
-# the same receipt to `sir` twice.
+# one and starting the other. They must not run at once, and the reason is now worse than
+# it was: they would both run the extraction worker and send the same receipt to `sir`
+# twice, AND `spend unlock` deletes the SQLite cache out from under whatever is holding it,
+# leaving that process writing into a deleted inode with no error at all. `keys.exclusive()`
+# turns that into a loud failure rather than a silent one, but do not rely on it.
+#
+# This unit does not start at boot. A box that reboots should come up locked, because the
+# passphrase is the security of the whole store and there is nowhere safe to keep it. What
+# comes back automatically is the feed timer, which appends data it cannot read.
 
 [Unit]
 Description=spend — receipts in, spending out
@@ -20,6 +26,9 @@ Documentation=file://@REPO@/README.md
 # reading and correcting history with no inference at all.
 After=network-online.target
 Wants=network-online.target
+# The store must be unlocked. Without this, Restart=always spins against a locked store
+# forever, filling the journal with a failure whose cause is one line above it.
+ConditionPathExists=%t/spend/identity
 
 [Service]
 Type=exec
@@ -35,15 +44,16 @@ Environment=SIR_BASE_URL=@SIR@
 Environment=TZ=America/New_York
 Environment=PYTHONUNBUFFERED=1
 
-# The receipts and the database are the only things this writes. ProtectHome would put
-# them out of reach, so the narrower knobs are used instead.
+# The sealed log, the sealed blobs and the plaintext cache on tmpfs. ProtectHome would put
+# the first two out of reach, so the narrower knobs are used instead.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
-ReadWritePaths=%h/.local/share/spend %h/.cache/spend
+ReadWritePaths=%h/.local/share/spend %t/spend
 
-[Install]
-WantedBy=default.target
+# Deliberately no [Install] section. `spend unlock` starts this after it has replayed the
+# log; `spend lock` stops it. Enabling it would mean a box that boots comes up serving an
+# empty database, because there is no cache until someone types the passphrase.

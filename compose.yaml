@@ -30,6 +30,7 @@ services:
       SIR_BASE_URL: ${SPEND_SIR_BASE_URL:-http://host.docker.internal:8000}
       SPEND_MODEL: ${SPEND_MODEL:-nvidia/Qwen3.6-27B-NVFP4}
       SPEND_RENDER_MODE: ${SPEND_RENDER_MODE:-ocr}
+      SPEND_RUNTIME_DIR: /run/spend
       TZ: ${TZ:-America/New_York}
 
     # If `sir` ever moves into a compose project of its own, delete this and put both
@@ -44,8 +45,14 @@ services:
     # `:z` relabels for SELinux and is ignored where SELinux is off. Both directories must
     # be writable by uid 1000; on a single-user box they already are.
     volumes:
-      - ${SPEND_DATA_DIR:-${HOME}/.local/share/spend}:/var/lib/spend:z    # back this up
-      - ${SPEND_CACHE_DIR:-${HOME}/.cache/spend}:/var/cache/spend:z       # derived
+      - ${SPEND_DATA_DIR:-${HOME}/.local/share/spend}:/var/lib/spend:z    # ciphertext; back this up
+      # The plaintext half: the decrypted identity, the SQLite cache and the agent
+      # workspace. Bind-mounted from the host's own tmpfs so that `spend unlock` on the host
+      # unlocks the container too -- one passphrase, one cache, not two that can disagree.
+      # It is a tmpfs on the host, so nothing here reaches the disk.
+      - ${XDG_RUNTIME_DIR}/spend:/run/spend
+      # Read-only, because the container never writes a key. `spend init` is a host command.
+      - ${SPEND_CONFIG_DIR:-${HOME}/.config/spend}:/etc/spend:z,ro
 
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8089/healthz', timeout=4)"]
@@ -59,6 +66,10 @@ services:
       options: {max-size: "10m", max-file: "3"}
 
   # One-shot, under a profile so `up` never starts it:  docker compose run --rm backup
+  #
+  # This runs while the store is LOCKED and needs no passphrase, because everything it
+  # copies is already ciphertext. That is the point of encrypting at the application layer
+  # rather than encrypting the database: the nightly backup never has to hold a key.
   # Schedule it from the host — a cron line or a systemd --user timer. Nothing in here
   # sleeps waiting for 03:30, because a container whose job is to wait is a worse timer
   # than the one the host already has.
@@ -70,9 +81,15 @@ services:
     environment:
       TZ: ${TZ:-America/New_York}
     volumes:
-      # Read-only would be tidier, but SQLite in WAL mode needs to write the -shm file to
-      # take even a read transaction. `spend backup` issues no statement that mutates.
-      - ${SPEND_DATA_DIR:-${HOME}/.local/share/spend}:/var/lib/spend:z
+      # Read-only, and it can be now. This used to need write access because SQLite in WAL
+      # mode writes a -shm file to take even a read transaction; there is no database in a
+      # backup any more, only a tree of age files that get copied.
+      - ${SPEND_DATA_DIR:-${HOME}/.local/share/spend}:/var/lib/spend:z,ro
+      # The wrapped identity travels with the backup. It is passphrase-wrapped, which is what
+      # `age -p` is for, and losing the only copy of it is a likelier catastrophe than
+      # someone brute-forcing scrypt off a stolen drive.
+      - ${SPEND_CONFIG_DIR:-${HOME}/.config/spend}:/etc/spend:z,ro
+      - ${SPEND_CONFIG_DIR:-${HOME}/.config/spend}:/etc/spend:z,ro
       # Same destination the systemd timer uses, so the two deploy paths do not each keep
       # their own half-backup. It must exist: `mkdir -p ~/backups/spend`.
       - ${SPEND_BACKUP_DIR:-${HOME}/backups/spend}:/backups:z
