@@ -4,15 +4,17 @@
 <form class="upload" method="post" action="/upload" enctype="multipart/form-data">
   <!-- A plain form. `capture=environment` opens the rear camera straight from Safari,
        and because nothing here is JavaScript it works with the network half up. -->
-  <label class="button primary">
+  <label class="button primary icon" title="Photograph a receipt">
     <input type="file" name="files" accept="image/*" capture="environment" multiple hidden
            onchange="this.form.submit()">
-    Photograph a receipt
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+    <span class="sr">Photograph a receipt</span>
   </label>
-  <label class="button subtle">
+  <label class="button subtle icon" title="Choose a file">
     <input type="file" name="files" accept="image/*" multiple hidden
            onchange="this.form.submit()">
-    Choose a file
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/></svg>
+    <span class="sr">Choose a file</span>
   </label>
 </form>
 
@@ -22,6 +24,11 @@
             placeholder="Type what you spent"></textarea>
   <button class="button subtle" type="submit">Add</button>
 </form>
+
+{# Everything below the three ways in stays one tap away. Open by itself when a filter is
+   on, since the filter links reload the page and would otherwise land on a closed box. #}
+<details class="more" {% if sel_month or sel_category or review %}open{% endif %}>
+<summary>Show more</summary>
 
 {# A page that shows nothing must say why it shows nothing. An empty list that actually
    means "the model has been down for two days" is the failure this block exists to
@@ -76,7 +83,8 @@
 {% else %}
 <p class="empty">
   {% if health.receipts %}Nothing matches this filter.{% else %}
-  No receipts yet. Photograph one above.{% endif %}
+  No receipts yet.{% endif %}
 </p>
 {% endfor %}
+</details>
 {% endblock %}

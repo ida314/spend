@@ -62,8 +62,18 @@ main { max-width: 680px; margin: 0 auto; padding: var(--pad) var(--pad) 64px; }
 .button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 .button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
 .upload { display: flex; gap: 10px; margin-bottom: var(--pad); }
-.upload .primary { flex: 2; }
-.upload .subtle { flex: 1; }
+.upload .icon { flex: 1; display: flex; justify-content: center; padding: 10px; }
+.icon svg { width: 26px; height: 26px; fill: none; stroke: currentColor;
+            stroke-width: 1.8; stroke-linejoin: round; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.more > summary {
+  width: max-content; margin: 0 auto var(--pad); padding: 4px 12px; cursor: pointer;
+  font-size: 13px; color: var(--ink-soft); list-style: none;
+  border: 1px solid var(--line); border-radius: 999px;
+}
+.more > summary::-webkit-details-marker { display: none; }
+.more[open] > summary { font-size: 0; }
+.more[open] > summary::after { content: "Show less"; font-size: 13px; }
 .speak { display: flex; gap: 10px; margin-bottom: var(--pad); }
 .speak textarea {
   flex: 1; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
