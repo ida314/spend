@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from spend import config, keys, paths, render, replay, seal, store
@@ -24,6 +25,7 @@ log = logging.getLogger(__name__)
 EXTENSIONS = {
     "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
     "image/heic": ".heic", "image/heif": ".heif",
+    "text/plain": ".txt",
 }
 # PDF is deliberately absent. `render` cannot rasterise one, so accepting a PDF would mean
 # storing a file the worker is guaranteed to fail on — a receipt that looks ingested and
@@ -79,6 +81,23 @@ def ingest_bytes(
     return rid, is_new
 
 
+def ingest_text(
+    conn: sqlite3.Connection, text: str, *, now: datetime | None = None
+) -> tuple[int, bool]:
+    """A receipt said out loud -- the phone keyboard's dictation, typed into the list page.
+
+    Stored as a sealed text blob like any photograph. The date goes into the text itself
+    because the prompt refuses to assume today, and because a re-read must see what the
+    first read saw. The minute keeps two identical coffees on different days apart.
+    """
+    text = (text or "").strip()
+    if not text:
+        raise IngestError("nothing was said")
+    now = now or datetime.now()
+    body = f"Date: {now:%Y-%m-%d}\nTime: {now:%H:%M}\n\n{text}\n"
+    return ingest_bytes(conn, body.encode(), mime="text/plain", source="upload")
+
+
 def ingest_file(conn: sqlite3.Connection, path: Path, **kw) -> tuple[int, bool]:
     import mimetypes
     mime = kw.pop("mime", None) or mimetypes.guess_type(path.name)[0] or ""
@@ -114,7 +133,11 @@ async def extract_one(
 
     mode = config.RENDER_MODE
     try:
-        doc = render.render(blob_bytes(row), row["sha256"], mode)
+        data = blob_bytes(row)
+        if row["mime"] == "text/plain":
+            doc = render.render_text(data.decode("utf-8", "replace"))
+        else:
+            doc = render.render(data, row["sha256"], mode)
     except (render.RenderError, seal.SealError, OSError) as exc:
         result = Extraction(status="error", note=f"render: {exc}")
         replay.record(conn, "extraction", {

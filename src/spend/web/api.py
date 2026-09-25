@@ -33,6 +33,7 @@ from spend.service import (
     blob_bytes,
     correct,
     ingest_bytes,
+    ingest_text,
     summary,
 )
 
@@ -132,10 +133,17 @@ def create_app(extractor=None) -> FastAPI:
         finally:
             conn.close()
 
+        spoken = None
+        if receipt["mime"] == "text/plain":
+            try:
+                spoken = blob_bytes(receipt).decode("utf-8", "replace")
+            except (keys.Locked, seal.SealError):
+                spoken = "(locked)"
+
         return templates.TemplateResponse(request, "detail.html", {
             "receipt": receipt, "txn": txn, "items": items,
             "extractions": list(reversed(extractions)), "corrections": corrections,
-            "categories": CATEGORIES, "editable": EDITABLE,
+            "categories": CATEGORIES, "editable": EDITABLE, "spoken": spoken,
         })
 
     @app.get("/img/{sha256}")
@@ -198,6 +206,20 @@ def create_app(extractor=None) -> FastAPI:
             return RedirectResponse(f"/r/{last}", status_code=303)
         query = "?skipped=" + "; ".join(skipped) if skipped else ""
         return RedirectResponse(f"/{query}", status_code=303)
+
+    @app.post("/speak")
+    def speak(request: Request, text: str = Form("")):
+        """A receipt in words. The phone keyboard's mic does the listening."""
+        conn = store.connect()
+        try:
+            rid, _ = ingest_text(conn, text)
+            conn.commit()
+        except IngestError as exc:
+            return RedirectResponse(f"/?skipped={exc}", status_code=303)
+        finally:
+            conn.close()
+        request.app.state.worker.nudge()
+        return RedirectResponse(f"/r/{rid}", status_code=303)
 
     @app.post("/r/{receipt_id}/correct")
     async def apply_correction(request: Request, receipt_id: int):

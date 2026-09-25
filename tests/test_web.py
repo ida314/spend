@@ -132,3 +132,35 @@ def test_healthz_and_doctor_answer(client):
     d = client.get("/doctor").json()
     assert d["schema_version"] >= 1
     assert "model" in d and "backlog" in d
+
+
+def test_a_spoken_receipt_lands_on_its_page_as_text(client):
+    r = client.post("/speak", data={"text": "Starbucks 6.45 coffee"}, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"].startswith("/r/")
+    assert "Starbucks 6.45 coffee" in client.get(r.headers["location"]).text
+    conn = store.connect()
+    rid = int(r.headers["location"].rsplit("/", 1)[1])
+    assert store.get_receipt(conn, rid)["mime"] == "text/plain"
+    conn.close()
+
+
+def test_saying_nothing_adds_nothing(client):
+    r = client.post("/speak", data={"text": "   "}, follow_redirects=False)
+    assert r.status_code == 303 and not r.headers["location"].startswith("/r/")
+    conn = store.connect()
+    assert conn.execute("SELECT COUNT(*) FROM receipts").fetchone()[0] == 0
+    conn.close()
+
+
+async def test_a_spoken_receipt_is_read_as_text_with_its_date(conn):
+    from datetime import datetime
+
+    from spend.service import extract_one, ingest_text
+    fake = FakeExtractor(ok())
+    rid, _ = ingest_text(conn, "coffee 4.50", now=datetime(2026, 9, 25, 8, 30))
+    conn.commit()
+    result = await extract_one(conn, rid, fake)
+    assert result.ok
+    doc = fake.calls[0]
+    assert doc.mode == "text"
+    assert "Date: 2026-09-25" in doc.text and "coffee 4.50" in doc.text

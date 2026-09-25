@@ -16,6 +16,13 @@
   </label>
 </form>
 
+<form class="speak" method="post" action="/speak">
+  <!-- No microphone code: the keyboard's dictation key is the voice-to-text. -->
+  <textarea name="text" rows="2" required
+            placeholder="Or say it — tap the keyboard mic: “Trader Joe's, 42.17, groceries”"></textarea>
+  <button class="button subtle" type="submit">Add</button>
+</form>
+
 {# A page that shows nothing must say why it shows nothing. An empty list that actually
    means "the model has been down for two days" is the failure this block exists to
    prevent. #}
